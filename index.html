@@ -71,6 +71,16 @@ body.ed #edp{display:block}
 body.ed #menu{display:none!important}
 body.ed .ed-el{display:block!important;outline:2px dashed rgba(159,232,255,.85);outline-offset:3px;touch-action:none;pointer-events:auto!important}
 body.ed .ed-el.ed-sel{outline-color:#ffd23f}
+/* quick messages (world-space speech bubble) */
+#qmBtn{position:fixed;top:calc(env(safe-area-inset-top,0px) + 83px);right:calc(env(safe-area-inset-right,0px) + 12px);padding:0 12px;height:34px;border-radius:17px;font-size:12px;opacity:.85;background:var(--glass);border:1px solid var(--line);font-weight:600;touch-action:none}
+#qmBtn.on{background:rgba(159,232,255,.35);border-color:#9fe8ff}
+#qmList{display:none;position:fixed;z-index:15;top:calc(env(safe-area-inset-top,0px) + 124px);right:calc(env(safe-area-inset-right,0px) + 12px);width:min(236px,62vw);max-height:calc(100% - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 136px);overflow-y:auto;box-sizing:border-box;padding:8px;border-radius:16px;background:rgba(4,18,26,.88);border:1px solid var(--line);grid-template-columns:1fr 1fr;gap:6px;touch-action:pan-y;direction:ltr}
+#qmList.open{display:grid}
+#qmList button{height:34px;padding:0 6px;border-radius:11px;border:1px solid var(--line);background:rgba(255,255,255,.1);font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#qmList button:active{background:rgba(159,232,255,.3);border-color:#9fe8ff}
+#oRoom{flex:1;min-width:0;padding:10px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.08);color:var(--fg);font-family:inherit;direction:ltr;-webkit-user-select:text;user-select:text}
+#oGo{padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.12)}
+body.m #qmBtn,body.m #qmList{display:none!important}
 </style>
 <script>
 window.DF_WORLDS=[{n:'قصر الأبد',f:'eternal-palace.js'},{n:'عالم بلا اسم',f:'dream-world.js'},{n:'الشق القرمزي',f:'crimson-rift.js'},{n:'بحر السكينة',f:'serene-sea.js'},{n:'حيتان المجرّة',f:'galaxy-whales.js'}];
@@ -1193,10 +1203,12 @@ gl_FragColor=vec4(c,1.);}`}));
 <div id="stick"><div id="knob"></div></div>
 <button id="boost">تسارع</button><button id="jump">قفز</button><button id="surge">اندفاع</button>
 <button id="mode">جو</button><button id="camb">منظور: ثالث</button><button id="cmb">قتال</button><button id="mbtn">📜</button>
+<button id="qmBtn" aria-label="رسائل سريعة">💬 رسائل</button><div id="qmList"></div>
 <div id="menu">
 <div class="pg on" id="pgM"><h1>📜 القائمة</h1>
 <button class="big" data-pg="pgC">🧍 اختيار الشخصية</button>
 <button class="big" data-pg="pgW">🌍 العالم: <span id="wcur">فراغ</span></button>
+<button class="big" data-pg="pgO">🌐 اللعب الأونلاين <span id="ocur"></span></button>
 <button class="big" data-pg="pgS">⚙️ الإعدادات</button></div>
 <div class="pg" id="pgC"><div class="hd"><button class="back" data-pg="pgM">→ رجوع</button><h1>اختيار الشخصية</h1></div>
 <div class="cards"><button class="card sel" data-i="0">الدرع الأصلي</button><button class="card" data-i="1">الدرع الحديدي</button></div>
@@ -1220,6 +1232,10 @@ gl_FragColor=vec4(c,1.);}`}));
 <div class="cards"><button class="qb" data-q="0">جودة منخفضة</button><button class="qb" data-q="1">متوسطة</button><button class="qb" data-q="2">عالية</button></div>
 <button class="big2" id="bReset">↺ إعادة ضبط كل الإعدادات</button>
 </div></div>
+<div class="pg" id="pgO"><div class="hd"><button class="back" data-pg="pgM">→ رجوع</button><h1>🌐 اللعب الأونلاين</h1></div>
+<div class="lbl">رمز الغرفة (إنجليزي/أرقام) — شاركه مع أصدقائك ليدخلوا نفس الغرفة</div>
+<div class="row"><input id="oRoom" maxlength="12" autocomplete="off" spellcheck="false"><button id="oGo">اتصال</button></div>
+<div class="lbl" id="oSt"></div></div>
 <button id="go">ابدأ</button></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -1612,6 +1628,190 @@ pick(0);applySkin(0);applyCfg();syncUI();
 addEventListener('error',e=>{const h=$('hint');h.style.opacity=1;h.style.top='12%';h.textContent='خطأ: '+e.message});
 {const q=new URLSearchParams(location.search).get('world'),w0=q||CFG.world;if(w0)loadWorld(w0)}   // no world selected = the void
 requestAnimationFrame(frame);
+</script>
+<script>
+/* =====================================================================
+   World-Space Quick Messages  (ميزة مستقلة - لا تعدّل أي نظام موجود)
+   زر 💬 ← قائمة من 10 رسائل ← فقاعة كلام (Sprite) فوق الشخصية تواجه الكاميرا
+   - نظام فقاعات متعدد: فقاعتي ('me') + فقاعة لكل لاعب آخر (عبر QMAPI).
+   - الفقاعة عنصر مرئي فقط: ليست في DOM ولا تُستخدم في أي raycast ولا فيزياء.
+   - لتعديل الرسائل: غيّر المصفوفة QM_MSGS فقط.
+   ===================================================================== */
+(function(){
+const QM_MSGS=['Hello!','Follow me!','Wait here!','Come here!',"Let's go!",'Help me!','Thank you!','Sorry!','Watch out!','Goodbye!'];
+const QM_SHOW=3.2,QM_IN=.18,QM_OUT=.45,QM_RISE=2.5,QM_SCREEN_H=.07,QM_MAX_W=.55;
+window.QMAPI={msgs:QM_MSGS,onSend:null,say:function(){},drop:function(){}};
+try{
+const btn=$('qmBtn'),list=$('qmList'),cache={},BB={};
+function makeTex(text){
+ if(cache[text])return cache[text];
+ const f=Math.min(devicePixelRatio||1,2),fs=46,padX=34,bh=84,tail=24,r=26;
+ const m=document.createElement('canvas').getContext('2d');m.font='700 '+fs+'px system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif';
+ const tw=Math.ceil(m.measureText(text).width),w=Math.max(150,tw+padX*2),h=bh+tail,b=4;
+ const c=document.createElement('canvas');c.width=Math.ceil((w+b*2)*f);c.height=Math.ceil((h+b*2)*f);
+ const x=c.getContext('2d');x.scale(f,f);x.translate(b,b);
+ x.beginPath();x.moveTo(r,0);x.arcTo(w,0,w,bh,r);x.arcTo(w,bh,0,bh,r);
+ x.lineTo(w/2+tail*.8,bh);x.lineTo(w/2,bh+tail);x.lineTo(w/2-tail*.8,bh);
+ x.arcTo(0,bh,0,0,r);x.arcTo(0,0,w,0,r);x.closePath();
+ x.fillStyle='rgba(255,255,255,.96)';x.shadowColor='rgba(0,0,0,.35)';x.shadowBlur=8;x.fill();
+ x.shadowBlur=0;x.lineWidth=2.5;x.strokeStyle='rgba(20,50,70,.55)';x.stroke();
+ x.fillStyle='#0b1a24';x.font=m.font;x.textAlign='center';x.textBaseline='middle';x.fillText(text,w/2,bh/2+2);
+ const T=new THREE.CanvasTexture(c);T.generateMipmaps=false;T.minFilter=THREE.LinearFilter;T.magFilter=THREE.LinearFilter;
+ return cache[text]={tex:T,asp:c.width/c.height,ch:h+b*2,bh:bh};
+}
+// sprite = billboard by construction: always faces the camera, scales with distance like a real world object
+function getB(key){
+ if(BB[key])return BB[key];
+ const spr=new THREE.Sprite(new THREE.SpriteMaterial({transparent:true,depthTest:false,depthWrite:false,fog:false}));
+ spr.center.set(.5,.0);spr.renderOrder=999;spr.visible=false;spr.frustumCulled=false;spr.raycast=function(){};scene.add(spr);
+ return BB[key]={spr:spr,t:-1,tex:null,anchor:null,local:false};
+}
+function say(key,i,anchor,local){
+ const text=QM_MSGS[i];if(text==null)return;
+ const b=getB(key),q=makeTex(text);b.spr.material.map=q.tex;b.spr.material.needsUpdate=true;b.tex=q;b.t=0;b.anchor=anchor||null;b.local=!!local;
+}
+function drop(key){const b=BB[key];if(!b)return;scene.remove(b.spr);b.spr.material.dispose();delete BB[key]}
+window.QMAPI.say=say;window.QMAPI.drop=drop;
+
+function openList(v){list.classList.toggle('open',v);btn.classList.toggle('on',v)}
+QM_MSGS.forEach((msg,i)=>{const b=document.createElement('button');b.textContent=msg;
+ b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();say('me',i,null,true);openList(false);
+  try{window.QMAPI.onSend&&window.QMAPI.onSend(i)}catch(_){}});   /* pointerdown not click: works while another finger holds the stick */
+ list.appendChild(b)});
+btn.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(document.body.classList.contains('ed'))return;openList(!list.classList.contains('open'))});
+document.addEventListener('pointerdown',e=>{if(list.classList.contains('open')&&!(e.target.closest&&(e.target.closest('#qmList')||e.target.closest('#qmBtn'))))openList(false)});
+addEventListener('keydown',e=>{if(e.target.tagName==='INPUT'||menuOpen)return;if(e.code==='KeyM')openList(!list.classList.contains('open'));else if(e.code==='Escape')openList(false)});
+$('mbtn').addEventListener('click',()=>{openList(false);const b=BB.me;if(b){b.t=-1;b.spr.visible=false}});   // opening the main menu hides my bubble
+
+function qmStep(){
+ const now=performance.now()/1000,dt=Math.min(now-(qmStep.l||now),.05);qmStep.l=now;
+ for(const k in BB){
+  const b=BB[k],spr=b.spr,tex=b.tex;
+  if(b.t<0||!tex){spr.visible=false;continue}
+  b.t+=dt;if(b.t>=QM_SHOW){b.t=-1;spr.visible=false;continue}
+  if(b.local){if(fpT>.5||menuOpen){spr.visible=false;continue}spr.position.set(pos.x,pos.y+QM_RISE,pos.z)}
+  else{const a=b.anchor;if(!a||!a.visible){spr.visible=false;continue}spr.position.set(a.position.x,a.position.y+QM_RISE,a.position.z)}
+  spr.visible=true;
+  // constant on-screen size (a fraction of the view height), capped by view width; slight pop-in
+  const d=cam.position.distanceTo(spr.position),vh=2*d*Math.tan(cam.fov*Math.PI/360);
+  let hh=vh*QM_SCREEN_H*tex.ch/(tex.bh+28);const ww=hh*tex.asp,mw=vh*cam.aspect*QM_MAX_W;if(ww>mw)hh*=mw/ww;
+  const t=b.t,s=t<QM_IN?(1-Math.pow(1-t/QM_IN,3))*1.12:(t<QM_IN*2?1.12-.12*((t-QM_IN)/QM_IN):1);
+  spr.scale.set(hh*tex.asp*s,hh*s,1);
+  spr.material.opacity=t>QM_SHOW-QM_OUT?Math.max(0,(QM_SHOW-t)/QM_OUT):1;
+ }
+}
+// run once per rendered frame, right before the scene is drawn (no edits to the existing loop)
+const _render=renderer.render.bind(renderer);
+renderer.render=function(a,b){try{qmStep()}catch(e){for(const k in BB)BB[k].spr.visible=false}return _render(a,b)};
+
+// make the button movable / resizable in the existing layout editor, like every other control
+EL.push(['qmBtn','رسائل سريعة 💬']);applyLay1('qmBtn');
+}catch(err){console.error('quick messages disabled:',err)}
+})();
+</script>
+<script>
+/* =====================================================================
+   Online (Firebase Realtime Database, خطة Spark المجانية) - ميزة مستقلة
+   - لا يُحمَّل أي شيء من Firebase إلا عند الضغط على «اتصال» في القائمة.
+   - اللعب الفردي لا يتأثر: لو فشل الاتصال تبقى اللعبة تعمل كما هي.
+   - البيانات: rooms/{room}/players/{uid} و rooms/{room}/msg/{uid}
+   ===================================================================== */
+(function(){
+const FB_CONFIG={apiKey:"AIzaSyDf-Y-2fPwBAcCgGGVOOjjWp762eQhG35k",authDomain:"deep-flight-a24c9.firebaseapp.com",projectId:"deep-flight-a24c9",storageBucket:"deep-flight-a24c9.firebasestorage.app",messagingSenderId:"935530439325",appId:"1:935530439325:web:50bb029edb74206e8bea74"};
+// رابط قاعدة البيانات (منطقة europe-west1) - من Firebase Console > Realtime Database
+const DB_URL='https://deep-flight-a24c9-default-rtdb.europe-west1.firebasedatabase.app';
+const SDK='https://www.gstatic.com/firebasejs/10.12.2/firebase-';
+const MAXP=8,SEND_MS=100,HEART_MS=3000,STALE_MS=12000,POS_EPS=.05,ROT_EPS=.01;
+try{
+const oRoom=$('oRoom'),oGo=$('oGo'),oSt=$('oSt'),oCur=$('ocur');
+const sdkP={};
+function load(src){return sdkP[src]||(sdkP[src]=new Promise((ok,no)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>no(new Error('sdk'));document.head.appendChild(s)}))}
+async function ensureSdk(){await load(SDK+'app-compat.js');await Promise.all([load(SDK+'auth-compat.js'),load(SDK+'database-compat.js')])}
+const setSt=(t,bad)=>{oSt.textContent=t;oSt.style.color=bad?'#ff9b9b':''};
+try{oRoom.value=localStorage.getItem('df_room')||'main'}catch(_){oRoom.value='main'}
+
+let live=null;            // active session
+const R={};               // remote players: uid -> {g,tp,tr,seen}
+
+function mkRemote(){
+ const g=new THREE.Group();g.rotation.order='YXZ';
+ const a=P.clone(true),c=C3.clone(true);g.add(a,c);scene.add(g);return g;
+}
+function putRemote(uid,v){
+ let r=R[uid];
+ if(!r){r={g:mkRemote(),tp:new THREE.Vector3(v.x,v.y,v.z),tr:{x:v.a||0,y:v.b||0,z:v.c||0},seen:0};r.g.position.copy(r.tp);r.g.rotation.set(r.tr.x,r.tr.y,r.tr.z);R[uid]=r;updCount()}
+ r.tp.set(v.x,v.y,v.z);r.tr.x=v.a||0;r.tr.y=v.b||0;r.tr.z=v.c||0;r.seen=performance.now();
+ r.g.children[0].visible=(v.k|0)===0;r.g.children[1].visible=(v.k|0)===1;
+}
+function dropRemote(uid){const r=R[uid];if(!r)return;scene.remove(r.g);delete R[uid];QMAPI.drop(uid);updCount()}
+function updCount(){const n=Object.keys(R).length;oCur.textContent=live?('· '+(n+1)+' 👥'):''}
+
+function remoteStep(dt){
+ const k=1-Math.exp(-14*dt),now=performance.now();
+ for(const uid in R){const r=R[uid],g=r.g;
+  g.visible=now-r.seen<STALE_MS;if(!g.visible)continue;
+  g.position.lerp(r.tp,k);
+  g.rotation.x+=(r.tr.x-g.rotation.x)*k;g.rotation.z+=(r.tr.z-g.rotation.z)*k;
+  const d=((r.tr.y-g.rotation.y+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;g.rotation.y+=d*k}
+}
+const _render=renderer.render.bind(renderer);let lastT=performance.now();
+renderer.render=function(a,b){try{const n=performance.now(),dt=Math.min((n-lastT)/1000,.05);lastT=n;remoteStep(dt)}catch(e){}return _render(a,b)};
+
+const rd=(v,n)=>Math.round(v*n)/n;
+function sendState(force){
+ if(!live)return;const L=live,p=Rot.position,q=Rot.rotation,now=performance.now();
+ const s={x:rd(p.x,100),y:rd(p.y,100),z:rd(p.z,100),a:rd(q.x,1000),b:rd(q.y,1000),c:rd(q.z,1000),k:chIdx,h:Math.floor(now/HEART_MS)%1000};
+ const o=L.last,moved=!o||Math.abs(s.x-o.x)+Math.abs(s.y-o.y)+Math.abs(s.z-o.z)>POS_EPS||Math.abs(s.a-o.a)+Math.abs(s.b-o.b)+Math.abs(s.c-o.c)>ROT_EPS||s.k!==o.k;
+ if(!moved&&!(now-L.lastSend>HEART_MS))return;
+ L.last=s;L.lastSend=now;L.me.set(s).catch(()=>{});
+}
+
+async function connect(){
+ const room=(oRoom.value||'main').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,12)||'main';oRoom.value=room;
+ try{localStorage.setItem('df_room',room)}catch(_){}
+ oGo.disabled=true;setSt('جارٍ الاتصال...');
+ try{
+  await ensureSdk();
+  if(!firebase.apps.length)firebase.initializeApp(Object.assign({databaseURL:DB_URL},FB_CONFIG));
+  const cred=await firebase.auth().signInAnonymously(),uid=cred.user.uid,db=firebase.database();
+  const pRef=db.ref('rooms/'+room+'/players'),mRef=db.ref('rooms/'+room+'/msg');
+  const snap=await Promise.race([pRef.once('value'),new Promise((_,no)=>setTimeout(()=>no(new Error('timeout')),10000))]);
+  let cnt=snap.numChildren();if(snap.hasChild(uid))cnt--;
+  if(cnt>=MAXP)throw new Error('full');
+  const m0=await mRef.once('value'),seen={};m0.forEach(c=>{seen[c.key]=(c.val()||{}).n});
+  const me=pRef.child(uid),mm=mRef.child(uid);
+  me.onDisconnect().remove();mm.onDisconnect().remove();
+  const onP=s=>{if(s.key===uid)return;const v=s.val();if(v&&typeof v.x==='number'&&typeof v.y==='number'&&typeof v.z==='number')putRemote(s.key,v)};
+  const onG=s=>dropRemote(s.key);
+  const onM=s=>{const v=s.val();if(s.key===uid||!v||seen[s.key]===v.n)return;seen[s.key]=v.n;if(R[s.key])QMAPI.say(s.key,v.i|0,R[s.key].g,false)};
+  pRef.on('child_added',onP);pRef.on('child_changed',onP);pRef.on('child_removed',onG);
+  mRef.on('child_added',onM);mRef.on('child_changed',onM);
+  live={uid,room,me,mm,pRef,mRef,onP,onG,onM,last:null,lastSend:0,iv:setInterval(()=>sendState(false),SEND_MS),n:0};
+  QMAPI.onSend=i=>{if(live)live.mm.set({i:i,n:Date.now()+(++live.n)}).catch(()=>{})};
+  sendState(true);
+  oGo.textContent='قطع الاتصال';oGo.disabled=false;updCount();
+  setSt('متصل بالغرفة «'+room+'» — اضغط «ابدأ» وشارك الرمز مع أصدقائك');
+ }catch(e){
+  const c=(e&&(e.code||e.message))||'';
+  const msg=c==='auth/operation-not-allowed'||c==='auth/admin-restricted-operation'?'فعّل Anonymous من Authentication > Sign-in method'
+   :c==='timeout'?'تعذّر الوصول للقاعدة: تأكد من رابط قاعدة البيانات DB_URL ومن القواعد (Rules)'
+   :c==='full'?'الغرفة ممتلئة (الحد '+MAXP+' لاعبين)'
+   :c==='sdk'?'تعذّر تحميل Firebase: تحقق من الإنترنت'
+   :/PERMISSION_DENIED/i.test(c)?'القواعد (Rules) ترفض الوصول: انسخ القواعد المطلوبة'
+   :c==='auth/unauthorized-domain'?'أضف نطاق اللعبة في Authentication > Settings > Authorized domains'
+   :'تعذّر الاتصال: '+c;
+  teardown();setSt(msg,true);oGo.textContent='اتصال';oGo.disabled=false;
+ }
+}
+function teardown(){
+ const L=live;live=null;QMAPI.onSend=null;
+ if(L){clearInterval(L.iv);try{L.pRef.off('child_added',L.onP);L.pRef.off('child_changed',L.onP);L.pRef.off('child_removed',L.onG);L.mRef.off('child_added',L.onM);L.mRef.off('child_changed',L.onM);L.me.remove();L.mm.remove()}catch(_){}}
+ Object.keys(R).forEach(dropRemote);updCount();
+}
+oGo.addEventListener('click',()=>{if(live){teardown();oGo.textContent='اتصال';setSt('غير متصل')}else connect()});
+setSt('غير متصل');
+}catch(err){console.error('online disabled:',err)}
+})();
 </script>
 </body>
 </html>
