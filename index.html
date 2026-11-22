@@ -87,8 +87,209 @@ body.m #onInd,body.ed #onInd{display:none}
 body.m #qmBtn,body.m #qmList{display:none!important}
 </style>
 <script>
-window.DF_WORLDS=[{n:'قصر الأبد',f:'eternal-palace.js'},{n:'عالم بلا اسم',f:'dream-world.js'},{n:'الشق القرمزي',f:'crimson-rift.js'},{n:'بحر السكينة',f:'serene-sea.js'},{n:'حيتان المجرّة',f:'galaxy-whales.js'}];
+window.DF_WORLDS=[{n:'جزيرة المدينة',f:'island-city'},{n:'قصر الأبد',f:'eternal-palace.js'},{n:'عالم بلا اسم',f:'dream-world.js'},{n:'الشق القرمزي',f:'crimson-rift.js'},{n:'بحر السكينة',f:'serene-sea.js'},{n:'حيتان المجرّة',f:'galaxy-whales.js'}];
 window.DF_INLINE={
+'island-city':function(){
+/* =====================================================================
+   جزيرة المدينة - عالم على طراز deep-flight-v16
+   جزيرة رملية كبيرة تحيط بها شاطئ وبحر بأمواج · مدينة بشبكة شوارع وأبنية بنوافذ
+   مدرج مطار وبرج مراقبة · برج مركزي · عجلة دوّارة · حدائق ونخيل · منارة · سحب وشمس
+   كل جزء محميّ: لو تعطّل جزء يبقى العالم يعمل وتظهر رسالة باسم الجزء.
+   ===================================================================== */
+const KM=1.3,P=100*KM,NB=5,CH=(NB+.5)*P,SEA=-6,SEAB=-22,TW=6.4,FH=4.2;
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),sstep=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t)};
+const sdBox=(px,pz,h)=>{const qx=Math.abs(px)-h,qz=Math.abs(pz)-h;return Math.hypot(Math.max(qx,0),Math.max(qz,0))+Math.min(Math.max(qx,qz),0)};
+// ارتفاع الأرض: المدينة مسطّحة عند 0، ثم كثبان رملية، ثم شاطئ ينحدر إلى قاع البحر
+function GH(x,z){const d=sdBox(x,z,CH);if(d<=30)return 0;
+ const a=sstep(30,110,d)*(1-sstep(250,340,d)),dn=a*(2.4+2.2*Math.sin(x*.012+z*.009)*Math.cos(z*.011-x*.006)+1.2*Math.sin(x*.031-z*.027));
+ return dn-22*sstep(300,480,d)}
+// أمواج (مشتركة بين JS والـ GLSL)
+const WV=[[.2,70,1.5],[1.1,42,.8],[-.7,26,.5],[2,15,.28],[-1.6,9,.14]].map(([a,L,A])=>{const k=2*Math.PI/L;return{dx:Math.cos(a),dz:Math.sin(a),k,w:Math.sqrt(9.8*k)*.7,A}});
+const waterH=(x,z,t)=>{let h=0;for(const o of WV)h+=o.A*Math.exp(Math.sin((o.dx*x+o.dz*z)*o.k+t*o.w)-1);return h};
+let WG='';WV.forEach(o=>{const d=`vec2(${o.dx.toFixed(4)},${o.dz.toFixed(4)})`;WG+=`ph=dot(${d},p)*${o.k.toFixed(5)}+uT*${o.w.toFixed(4)};e=${o.A.toFixed(3)}*exp(sin(ph)-1.);h+=e;g+=e*cos(ph)*${o.k.toFixed(5)}*${d};`});
+const SKYG=`vec3 sky(vec3 d,vec3 s){float h=clamp(d.y,0.,1.);vec3 c=mix(vec3(.80,.88,.94),vec3(.16,.40,.74),pow(h,.45));float k=max(dot(d,s),0.);c+=vec3(1.,.82,.55)*(pow(k,900.)*6.+pow(k,10.)*.22);return c;}`;
+let sv=null,oU=null,sunS=null,clouds=[],wheel=null,gond=[],ocean=null;
+DF.registerWorld({
+ name:'جزيرة المدينة',
+ spawn:{x:0,y:130,z:-430,yaw:0},
+ env:{clear:0xcfe2f0,top:0x3a78c8,fog:0xcfe2f0,density:.00035,stars:0,sky:1,dust:0},
+ groundH:GH,
+ sol:[],
+ build(DF){
+  const T=DF.THREE,root=DF.root,sol=this.sol;
+  let sd=7;const rn=()=>(sd=(sd*16807)%2147483647)/2147483647;
+  const step=(n,f)=>{try{f()}catch(e){console.error('island:'+n,e);DF.say('⚠ '+n+': '+(e&&e.message||e))}};
+  const SUN=new T.Vector3(.5,.6,.35).normalize();
+  // ---- إضاءة نهار (تُستعاد عند المغادرة) ----
+  sv={hc:DF.hemi.color.getHex(),hg:DF.hemi.groundColor.getHex(),hi:DF.hemi.intensity,sc:DF.sun.color.getHex(),si:DF.sun.intensity,sp:DF.sun.position.clone()};
+  DF.hemi.color.setHex(0xcfe4ff);DF.hemi.groundColor.setHex(0xb59a70);DF.hemi.intensity=1.05;
+  DF.sun.color.setHex(0xfff1d8);DF.sun.intensity=1.6;DF.sun.position.set(SUN.x*300,SUN.y*300,SUN.z*300);
+
+  // ---- أداة بناء هندسة مدمجة (ملايين الأوجه في Mesh واحد) ----
+  function Geo(){const p=[],n=[],c=[],u=[];
+   const quad=(a,b,cc,d,nx,ny,nz,col,uv)=>{const V=[a,b,cc,a,cc,d],U=[[uv[0],uv[1]],[uv[2],uv[1]],[uv[2],uv[3]],[uv[0],uv[1]],[uv[2],uv[3]],[uv[0],uv[3]]];
+    for(let i=0;i<6;i++){p.push(V[i][0],V[i][1],V[i][2]);n.push(nx,ny,nz);c.push(col[0],col[1],col[2]);u.push(U[i][0],U[i][1])}};
+   return{
+    box(x1,y1,z1,x2,y2,z2,col,win){
+     const hh=y2-y1,uw=win?(x2-x1)/TW:0,ud=win?(z2-z1)/TW:0,vv=win?hh/FH:0,rf=[col[0]*.75,col[1]*.75,col[2]*.75],tu=[.04,.04,.06,.06];
+     quad([x1,y1,z2],[x2,y1,z2],[x2,y2,z2],[x1,y2,z2],0,0,1,col,win?[0,0,uw,vv]:tu);
+     quad([x2,y1,z1],[x1,y1,z1],[x1,y2,z1],[x2,y2,z1],0,0,-1,col,win?[0,0,uw,vv]:tu);
+     quad([x2,y1,z2],[x2,y1,z1],[x2,y2,z1],[x2,y2,z2],1,0,0,col,win?[0,0,ud,vv]:tu);
+     quad([x1,y1,z1],[x1,y1,z2],[x1,y2,z2],[x1,y2,z1],-1,0,0,col,win?[0,0,ud,vv]:tu);
+     quad([x1,y2,z2],[x2,y2,z2],[x2,y2,z1],[x1,y2,z1],0,1,0,rf,tu)},
+    mesh(mat){const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(p,3));g.setAttribute('normal',new T.Float32BufferAttribute(n,3));g.setAttribute('color',new T.Float32BufferAttribute(c,3));g.setAttribute('uv',new T.Float32BufferAttribute(u,2));
+     const m=new T.Mesh(g,mat);m.frustumCulled=false;root.add(m);return m}}}
+  const canv=(w,h,f)=>{const c=document.createElement('canvas');c.width=w;c.height=h;f(c.getContext('2d'),w,h);return c};
+  const glowTex=new T.CanvasTexture(canv(128,128,(g,w,h)=>{const r=g.createRadialGradient(64,64,0,64,64,64);r.addColorStop(0,'rgba(255,255,255,1)');r.addColorStop(.25,'rgba(255,255,255,.55)');r.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=r;g.fillRect(0,0,w,h)}));
+
+  // ---- الأرض: مدينة (رصيف) ← رمل ← شاطئ مبلل ← قاع البحر ----
+  step('الأرض',()=>{
+   const g=new T.PlaneGeometry(2500,2500,320,320);g.rotateX(-Math.PI/2);const ip=g.attributes.position,ic=new Float32Array(ip.count*3);
+   for(let i=0;i<ip.count;i++){const x=ip.getX(i),z=ip.getZ(i),h=GH(x,z),d=sdBox(x,z,CH);ip.setY(i,h);
+    const n=.05*Math.sin(x*.7)*Math.cos(z*.9)+.03*Math.sin(x*.13+z*.11),k=sstep(0,30,d);
+    const cn=(1-k)*(.025*Math.sin(x*.21)*Math.cos(z*.17)+.02*Math.sin(x*.043+z*.05));let r=(.33+cn)*(1-k)+.70*k,gg=(.32+cn)*(1-k)+.55*k,b=(.30+cn)*(1-k)+.33*k;
+    if(h<SEA+2.2){const w=clamp((SEA+2.2-h)/2.2,0,1);r=r*(1-w)+.45*w;gg=gg*(1-w)+.36*w;b=b*(1-w)+.23*w}
+    if(h<SEA){const w=clamp((SEA-h)/16,0,.55);r*=1-w;gg*=1-w;b*=1-w*.6}
+    ic[i*3]=r+n;ic[i*3+1]=gg+n;ic[i*3+2]=b+n}
+   g.setAttribute('color',new T.BufferAttribute(ic,3));g.computeVertexNormals();
+   root.add(new T.Mesh(g,new T.MeshStandardMaterial({vertexColors:true,roughness:1,metalness:0})));
+   const sb=new T.Mesh(new T.PlaneGeometry(60000,60000).rotateX(-Math.PI/2),new T.MeshStandardMaterial({color:0x7e8a80,roughness:1,polygonOffset:true,polygonOffsetFactor:2,polygonOffsetUnits:8}));sb.position.y=SEAB-.2;root.add(sb)});
+
+  // ---- شوارع + خطوط + مدرج + عشب ----
+  const parks=[],SC=[];for(let k=-6;k<=5;k++)SC.push((k+.5)*P);
+  const RWX=-3*P,RWL=520,RWW=22,isAir=(i,j)=>i===-3&&j>=-2&&j<=2,isLand=(i,j)=>i%3===0&&j%3===0;
+  step('الشوارع',()=>{
+   const R=Geo(),L=Geo(),HW=14*KM,ST=[.16,.16,.18],ED=[.9,.9,.88],DS=[.95,.8,.3];
+   for(const c of SC){R.box(-CH,0,c-HW,CH,.06,c+HW,ST);R.box(c-HW,0,-CH,c+HW,.06,CH,ST)}
+   for(const c of SC){for(let t=-CH+14;t<CH;t+=14){if(SC.some(q=>Math.abs(t-q)<18*KM))continue;L.box(t-3,.06,c-.3,t+3,.09,c+.3,DS);L.box(c-.3,.06,t-3,c+.3,.09,t+3,DS)}}
+   const iv=[-CH];for(const q of SC)iv.push(q-HW,q+HW);iv.push(CH);
+   for(const c of SC)for(let n=0;n<iv.length;n+=2){const u=iv[n],v=iv[n+1];if(v-u<2)continue;for(const sg of[-1,1]){const o=c+sg*(HW-1.6);L.box(u,.06,o-.25,v,.09,o+.25,ED);L.box(o-.25,.06,u,o+.25,.09,v,ED)}}
+   // مدرج المطار
+   R.box(RWX-RWW,0,-RWL/2,RWX+RWW,.07,RWL/2,[.13,.13,.14]);
+   for(let z=-RWL/2+30;z<RWL/2-30;z+=26)L.box(RWX-.6,.07,z,RWX+.6,.1,z+12,ED);
+   for(const sg of[-1,1])L.box(RWX+sg*(RWW-1.4)-.3,.07,-RWL/2+4,RWX+sg*(RWW-1.4)+.3,.1,RWL/2-4,ED);
+   for(const e of[-1,1])for(let k=-4;k<=4;k++){if(!k)continue;const x=RWX+k*4.6,z0=e*(RWL/2-26);L.box(x-.9,.07,Math.min(z0,z0+e*18),x+.9,.1,Math.max(z0,z0+e*18),ED)}
+   // حدائق على بلوكات المنتزهات
+   const GR=[.3,.55,.28];for(let i=-NB;i<=NB;i++)for(let j=-NB;j<=NB;j++)if(isLand(i,j)&&!isAir(i,j)&&!(i===0&&j===0)){parks.push([i*P,j*P]);R.box(i*P-52,0,j*P-52,i*P+52,.04,j*P+52,GR)}
+   R.mesh(new T.MeshStandardMaterial({vertexColors:true,roughness:.92,metalness:0,side:T.DoubleSide,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-8}));
+   L.mesh(new T.MeshStandardMaterial({vertexColors:true,roughness:.9,metalness:0,side:T.DoubleSide,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-16}))});
+
+  // ---- المباني: كل المدينة في Mesh واحد، تصادم عبر sol ----
+  step('المباني',()=>{
+   const ft=new T.CanvasTexture(canv(128,128,(g)=>{g.fillStyle='#fff';g.fillRect(0,0,128,128);g.fillStyle='#d6d6d6';g.fillRect(0,118,128,10);
+    const gr=g.createLinearGradient(0,22,0,100);gr.addColorStop(0,'#6f93b5');gr.addColorStop(1,'#223447');g.fillStyle=gr;g.fillRect(22,22,84,78);
+    g.strokeStyle='#c4ccd4';g.lineWidth=4;g.strokeRect(22,22,84,78);g.beginPath();g.moveTo(64,22);g.lineTo(64,100);g.stroke()}));
+   ft.wrapS=ft.wrapT=T.RepeatWrapping;ft.anisotropy=4;
+   const B=Geo(),PAL=[[.88,.76,.54],[.9,.9,.88],[.62,.7,.78],[.78,.62,.5],[.55,.62,.7],[.85,.85,.92],[.7,.78,.66]];
+   for(let i=-NB;i<=NB;i++)for(let j=-NB;j<=NB;j++){
+    if(isAir(i,j)||isLand(i,j)||(i===-2&&(j===0||j===1)))continue;
+    const bx=i*P,bz=j*P,cd=Math.hypot(i,j);
+    for(const sx of[-1,1])for(const sz of[-1,1]){
+     const w=(16+rn()*9)*KM,cx=bx+sx*15*KM+(rn()-.5)*3,cz=bz+sz*15*KM+(rn()-.5)*3,fl=Math.max(3,Math.round(3+Math.pow(rn(),1.5)*(34-cd*3.2))),h=fl*FH,col=PAL[rn()*PAL.length|0];
+     B.box(cx-w/2,0,cz-w/2,cx+w/2,h,cz+w/2,col,true);sol.push({t:'b',x:cx,z:cz,r:w/2,h:h});
+     if(fl>18)B.box(cx-.6,h,cz-.6,cx+.6,h+14,cz+.6,[.6,.6,.62],false);
+     else if(rn()<.4)B.box(cx-w*.2,h,cz-w*.2,cx+w*.2,h+3.5,cz+w*.2,[col[0]*.8,col[1]*.8,col[2]*.8],true)}}
+   B.mesh(new T.MeshStandardMaterial({map:ft,vertexColors:true,roughness:.85,metalness:.05,side:T.DoubleSide}))});
+
+  // ---- معالم: برج مركزي + برج مراقبة + حظائر + عجلة + منارة ----
+  const M=(c,r=.5,m=0,e)=>new T.MeshStandardMaterial({color:c,roughness:r,metalness:m,emissive:e||0,emissiveIntensity:e?.6:0});
+  step('البرج المركزي',()=>{
+   const w=M(0xf2f2f2,.4,.2),gd=M(0xd9a93a,.3,.8,0x4a3208);
+   const shaft=new T.Mesh(new T.CylinderGeometry(5,8,240,16),w);shaft.position.y=120;root.add(shaft);
+   const disc=new T.Mesh(new T.CylinderGeometry(30,22,7,32),gd);disc.position.y=206;root.add(disc);
+   const dome=new T.Mesh(new T.SphereGeometry(16,24,12,0,Math.PI*2,0,Math.PI/2),M(0x7fb4d8,.1,.6));dome.position.y=209.5;root.add(dome);
+   const sp=new T.Mesh(new T.CylinderGeometry(.3,1.2,60,8),gd);sp.position.y=255;root.add(sp);
+   sol.push({t:'y',x:0,z:0,r:8,y0:0,y1:240},{t:'y',x:0,z:0,r:30,y0:202,y1:210})});
+  step('المطار',()=>{
+   const w=M(0xe8e8e8,.6),gl=M(0x5aa0c8,.1,.6),rd=M(0xb23a30,.7);
+   const tw=new T.Mesh(new T.CylinderGeometry(3.5,4.5,34,14),w);tw.position.set(-300,17,-70);root.add(tw);
+   const cab=new T.Mesh(new T.CylinderGeometry(7,5.5,6,14),gl);cab.position.set(-300,37,-70);root.add(cab);
+   const cap=new T.Mesh(new T.CylinderGeometry(7.4,7.4,1,14),rd);cap.position.set(-300,40.5,-70);root.add(cap);
+   sol.push({t:'y',x:-300,z:-70,r:4.5,y0:0,y1:34},{t:'y',x:-300,z:-70,r:7,y0:34,y1:40.5});
+   for(const z of[90,150]){const hg=new T.Mesh(new T.BoxGeometry(46,16,46),M(0xc9ced4,.7,.3));hg.position.set(-265,8,z);root.add(hg);const rf=new T.Mesh(new T.BoxGeometry(48,1.4,48),rd);rf.position.set(-265,16.7,z);root.add(rf);sol.push({t:'b',x:-265,z:z,r:23,h:17.4})}});
+  step('العجلة',()=>{
+   const gx=3*P,gz=3*P,AY=64,RR=52,w=M(0xffffff,.5,.2);
+   wheel=new T.Group();wheel.position.set(gx,AY,gz);root.add(wheel);
+   const ring=new T.Mesh(new T.TorusGeometry(RR,1.3,6,56),w);wheel.add(ring);const ring2=new T.Mesh(new T.TorusGeometry(RR*.55,.8,6,40),w);wheel.add(ring2);
+   for(let k=0;k<12;k++){const a=k/12*Math.PI*2,s=new T.Mesh(new T.BoxGeometry(RR*2,.5,.5),w);s.rotation.z=a;wheel.add(s)}
+   const cols=[0xff5a5a,0x5ac8ff,0xffd24a,0x7dff7d,0xff8fe0,0xffa040];
+   for(let k=0;k<18;k++){const a=k/18*Math.PI*2,g=new T.Group();g.position.set(Math.cos(a)*RR,Math.sin(a)*RR,0);const c=new T.Mesh(new T.BoxGeometry(5,4,5),M(cols[k%6],.5));c.position.y=-3;g.add(c);wheel.add(g);gond.push(g)}
+   for(const sz of[-8,8]){const l=new T.Mesh(new T.CylinderGeometry(1.6,2.4,AY,8),w);l.position.set(gx,AY/2,gz+sz);root.add(l);sol.push({t:'y',x:gx,z:gz+sz,r:2.4,y0:0,y1:AY})}
+   const ax=new T.Mesh(new T.CylinderGeometry(2,2,20,10),M(0xdddddd,.4,.5));ax.rotation.x=Math.PI/2;ax.position.set(gx,AY,gz);root.add(ax)});
+  step('المنارة',()=>{
+   const lx=CH+330,lz=-120,gy=Math.max(GH(lx,lz),0),w=M(0xf4f4f4,.6),rd=M(0xc23a30,.6);
+   for(let k=0;k<5;k++){const c=new T.Mesh(new T.CylinderGeometry(6-k*.7,6.7-k*.7,12,14),k%2?rd:w);c.position.set(lx,gy+6+k*12,lz);root.add(c)}
+   const lamp=new T.Mesh(new T.CylinderGeometry(3.4,3.4,6,12),M(0xfff2b0,.3,0,0xffd060));lamp.position.set(lx,gy+63,lz);root.add(lamp);
+   const cap=new T.Mesh(new T.ConeGeometry(4.6,6,12),rd);cap.position.set(lx,gy+69,lz);root.add(cap);
+   sol.push({t:'y',x:lx,z:lz,r:6.7,y0:gy,y1:gy+72})});
+
+  // ---- أشجار (حدائق) ونخيل (شاطئ) بالنسخ المتعددة ----
+  step('الأشجار',()=>{
+   const tp=[],pp=[];
+   for(const pk of parks)for(let n=0;n<26;n++)tp.push([pk[0]+(rn()-.5)*96,pk[1]+(rn()-.5)*96,.8+rn()*.9]);
+   for(let n=0;n<110;n++){const a=rn()*Math.PI*2,d=330+rn()*40,c=Math.cos(a),s=Math.sin(a);   // حلقة من النخيل حول الشاطئ
+    const e=Math.abs(c)>Math.abs(s)?[Math.sign(c)*(CH+d),(rn()*2-1)*(CH+d)]:[(rn()*2-1)*(CH+d),Math.sign(s)*(CH+d)],h=GH(e[0],e[1]);if(h>SEA+.8&&h<8)pp.push([e[0],h,e[1],.8+rn()*.6])}
+   const mk=(geo,mat,list,f)=>{if(!list.length)return;const im=new T.InstancedMesh(geo,mat,list.length),o=new T.Object3D(),c=new T.Color();list.forEach((q,i)=>{f(o,c,q);o.updateMatrix();im.setMatrixAt(i,o.matrix);im.setColorAt(i,c)});im.instanceMatrix.needsUpdate=true;if(im.instanceColor)im.instanceColor.needsUpdate=true;im.frustumCulled=false;root.add(im)};
+   const tr=new T.CylinderGeometry(.35,.5,1,6),cr=new T.IcosahedronGeometry(1,0),wm=M(0xffffff,.9);
+   mk(tr,wm,tp,(o,c,q)=>{o.position.set(q[0],2*q[2],q[1]);o.scale.set(q[2],4*q[2],q[2]);o.rotation.set(0,0,0);c.setRGB(.38,.26,.15)});
+   mk(cr,wm,tp,(o,c,q)=>{o.position.set(q[0],5.6*q[2],q[1]);o.scale.set(3*q[2],3.3*q[2],3*q[2]);o.rotation.set(0,q[0],0);c.setRGB(.2+rn()*.12,.5+rn()*.15,.2)});
+   mk(tr,wm,pp,(o,c,q)=>{o.position.set(q[0],q[1]+3.5*q[3],q[2]);o.scale.set(q[3],7*q[3],q[3]);o.rotation.set(.08,q[0],.06);c.setRGB(.55,.42,.26)});
+   mk(cr,wm,pp,(o,c,q)=>{o.position.set(q[0],q[1]+7.4*q[3],q[2]);o.scale.set(3.4*q[3],.9*q[3],3.4*q[3]);o.rotation.set(0,q[0],0);c.setRGB(.2,.55,.25)})});
+
+  // ---- البحر (شيدر أمواج) ----
+  step('البحر',()=>{
+   const og=new T.PlaneGeometry(2,2,200,200);og.rotateX(-Math.PI/2);const p=og.attributes.position;
+   for(let i=0;i<p.count;i++){const x=p.getX(i),z=p.getZ(i),d=.08+.92*Math.max(Math.abs(x),Math.abs(z));p.setX(i,x*d*5000);p.setZ(i,z*d*5000)}
+   oU={uT:{value:0},uSea:{value:SEA},uCam:{value:DF.cam.position},uSun:{value:SUN},uUnder:{value:0},uFog:{value:new T.Color(.05,.4,.5)}};
+   ocean=new T.Mesh(og,new T.ShaderMaterial({uniforms:oU,side:T.DoubleSide,
+vertexShader:`uniform float uT,uSea;varying vec3 vW;varying float vH;varying vec2 vG;
+void main(){vec4 w=modelMatrix*vec4(position,1.);vec2 p=w.xz;float h=0.,ph,e;vec2 g=vec2(0.);${WG}w.y=h+uSea;vW=w.xyz;vH=h;vG=g;gl_Position=projectionMatrix*viewMatrix*w;}`,
+fragmentShader:`uniform float uT,uUnder;uniform vec3 uCam,uSun,uFog;varying vec3 vW;varying float vH;varying vec2 vG;${SKYG}
+void main(){
+vec3 V=normalize(uCam-vW);float dist=length(uCam-vW);vec2 q=vW.xz;vec2 g=vG;
+g+=.06*vec2(cos(q.x*1.7+uT*1.3+sin(q.y*.9)),cos(q.y*2.1-uT*1.1+sin(q.x*1.3)))*(1.-smoothstep(40.,260.,dist));
+g+=.03*vec2(cos(q.x*4.3+q.y*2.1+uT*2.),cos(q.y*5.1-q.x*1.7-uT*2.3))*(1.-smoothstep(15.,120.,dist));
+vec3 N=normalize(vec3(-g.x,1.,-g.y));N=normalize(mix(N,vec3(0.,1.,0.),smoothstep(150.,700.,dist)));
+vec3 col;
+if(uUnder>.5){
+vec3 Nf=-N;float c=max(dot(Nf,V),0.);float win=smoothstep(.3,.75,c);
+col=mix(uFog*.7,vec3(.5,.9,1.),win*(.6+.4*clamp(vH*.4,0.,1.)));
+col=mix(col,uFog,1.-exp(-dist*.025));
+}else{
+float fr=.02+.98*pow(1.-max(dot(N,V),0.),5.);
+vec3 R=reflect(-V,N);R.y=abs(R.y);
+vec3 refl=sky(R,uSun);
+float sss=clamp((vH-.6)/2.,0.,1.);
+vec3 wat=mix(vec3(.01,.09,.16),vec3(.03,.4,.44),pow(sss,1.4)*.9+.12*max(dot(N,uSun),0.));
+col=mix(wat,refl,fr);
+col+=vec3(1.,.9,.7)*pow(max(dot(R,uSun),0.),400.)*4.;
+float n=sin(q.x*1.9+q.y*1.3+uT*.6)*sin(q.y*2.3-q.x*.7-uT*.5);
+float foam=smoothstep(1.9,2.7,vH+.35*n)*(1.-smoothstep(200.,600.,dist));
+col=mix(col,vec3(.92,.96,1.),foam*.6);
+float hd=length(vW.xz-uCam.xz);col=mix(col,vec3(.80,.88,.94),1.-exp(-hd*.0007));
+}
+gl_FragColor=vec4(col,1.);}`}));
+   ocean.frustumCulled=false;root.add(ocean)});
+
+  // ---- الشمس والسحب ----
+  step('السماء',()=>{
+   sunS=new T.Sprite(new T.SpriteMaterial({map:glowTex,color:0xfff0c8,blending:T.AdditiveBlending,transparent:true,depthWrite:false,fog:false}));sunS.scale.set(900,900,1);sunS.userData.dir=SUN;root.add(sunS);
+   const ct=new T.CanvasTexture(canv(256,128,(g,w,h)=>{for(let k=0;k<14;k++){const x=40+Math.random()*176,y=50+Math.random()*30,r=22+Math.random()*30,gr=g.createRadialGradient(x,y,0,x,y,r);gr.addColorStop(0,'rgba(255,255,255,.85)');gr.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=gr;g.fillRect(0,0,w,h)}}));
+   for(let k=0;k<26;k++){const s=new T.Sprite(new T.SpriteMaterial({map:ct,transparent:true,opacity:.9,depthWrite:false,fog:false})),a=rn()*Math.PI*2,r=1200+rn()*3600,w=700+rn()*900;s.position.set(Math.cos(a)*r,360+rn()*380,Math.sin(a)*r);s.scale.set(w,w*.42,1);root.add(s);clouds.push(s)}});
+ },
+ update(dt,t,DF){
+  const cp=DF.cam.position;
+  if(oU){oU.uT.value=t;oU.uUnder.value=cp.y<SEA+waterH(cp.x,cp.z,t)?1:0}
+  if(sunS){const d=sunS.userData.dir;sunS.position.set(cp.x+d.x*4000,cp.y+d.y*4000,cp.z+d.z*4000)}
+  for(const s of clouds){s.position.x+=dt*5;if(s.position.x>5200)s.position.x=-5200}
+  if(wheel){wheel.rotation.z-=dt*.12;for(const g of gond)g.rotation.z=-wheel.rotation.z}
+ },
+ dispose(DF){
+  const o=sv;if(o){DF.hemi.color.setHex(o.hc);DF.hemi.groundColor.setHex(o.hg);DF.hemi.intensity=o.hi;DF.sun.color.setHex(o.sc);DF.sun.intensity=o.si;DF.sun.position.copy(o.sp)}
+  sv=null;oU=null;sunS=null;clouds=[];wheel=null;gond=[];ocean=null;
+ }
+});
+},
 'eternal-palace.js':function(){
 /* =====================================================================
    قصر الأبد - عالم فخم لـ Deep Flight (بلا شخصيات، مكان فقط)
@@ -1198,7 +1399,6 @@ gl_FragColor=vec4(c,1.);}`}));
 }
 };
 </script>
-<script src="worlds.js"></script>
 </head>
 <body class="m air noground">
 <div id="hud"><span id="sp">0 م/ث</span><span id="dp">فراغ لا نهائي</span></div>
@@ -1633,8 +1833,78 @@ $('cmb').addEventListener('pointerdown',e=>{e.preventDefault();CFG.cmb=CFG.cmb?0
 // ======================= boot =======================
 pick(0);applySkin(0);applyCfg();syncUI();
 addEventListener('error',e=>{const h=$('hint');h.style.opacity=1;h.style.top='12%';h.textContent='خطأ: '+e.message});
-{const q=new URLSearchParams(location.search).get('world'),w0=q||CFG.world;if(w0)loadWorld(w0)}   // no world selected = the void
+{const q=new URLSearchParams(location.search).get('world'),ok=f=>!!f&&((window.DF_INLINE&&DF_INLINE[f])||(window.DF_WORLDS||[]).some(w=>w.f===f));if(CFG.world&&!ok(CFG.world)){CFG.world='';saveCfg()}const w0=ok(q)?q:CFG.world;if(w0)loadWorld(w0)}   // no world selected = the void
 requestAnimationFrame(frame);
+</script>
+<script>
+/* =====================================================================
+   شريط ضوئي خلف اللاعب (30 م): يتبع مسار الحركة ويتموج ويتلاشى عند الذيل
+   - مستقل: يعمل للاعب المحلي وللاعبين البعيدين (الأونلاين) ليسهل ملاحظتهم
+   - يتلاشى تدريجياً عند التوقف، ويخفت قرب الكاميرا حتى لا يحجب الرؤية
+   ===================================================================== */
+const DFTrail=(function(){
+const LEN=30,STEP=.6,MAXP=64,W0=2.2,AMP=.7,JUMP=80,list=new Set();
+const PT=new Float32Array((MAXP+2)*3),LL=new Float32Array(MAXP+2);
+const vs='attribute float aT;attribute float aS;varying float vT;varying float vS;varying float vZ;void main(){vT=aT;vS=aS;vec4 mv=modelViewMatrix*vec4(position,1.);vZ=-mv.z;gl_Position=projectionMatrix*mv;}';
+const fs='uniform vec3 uCol;uniform float uOp;varying float vT;varying float vS;varying float vZ;void main(){float e=1.-abs(vS);float f=1.-vT;float a=pow(e,1.5)*pow(f,1.3)*uOp*smoothstep(2.5,9.,vZ);vec3 c=mix(uCol,vec3(1.),pow(e,4.)*.75*f);gl_FragColor=vec4(c,a);}';
+function create(color,target,opt){
+ opt=opt||{};const maxV=(MAXP+2)*2,pos=new Float32Array(maxV*3),aT=new Float32Array(maxV),aS=new Float32Array(maxV),idx=[];
+ for(let i=0;i<MAXP+1;i++){const a=2*i;idx.push(a,a+1,a+2,a+1,a+3,a+2)}
+ for(let i=0;i<=MAXP+1;i++){aS[2*i]=-1;aS[2*i+1]=1}
+ const g=new THREE.BufferGeometry();
+ g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('aT',new THREE.BufferAttribute(aT,1));g.setAttribute('aS',new THREE.BufferAttribute(aS,1));
+ g.setIndex(idx);g.setDrawRange(0,0);
+ const m=new THREE.ShaderMaterial({uniforms:{uCol:{value:new THREE.Color(color)},uOp:{value:0}},vertexShader:vs,fragmentShader:fs,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false});
+ const mesh=new THREE.Mesh(g,m);mesh.frustumCulled=false;mesh.renderOrder=2;mesh.visible=false;scene.add(mesh);
+ const T={target,mesh,g,m,pos,aT,visible:true,far:!!opt.far,op:opt.op||1,hist:new Float32Array(MAXP*3),n:0,prev:new THREE.Vector3(),has:false,spd:0,ph:Math.random()*6.283,
+  reset(){this.n=0;this.has=false;this.mesh.visible=false},
+  dispose(){scene.remove(mesh);g.dispose();m.dispose();list.delete(this)}};
+ list.add(T);return T}
+const sd=new THREE.Vector3(),sb=new THREE.Vector3(),tv=new THREE.Vector3(),vv=new THREE.Vector3(),UP=new THREE.Vector3(0,1,0);
+function upd(T,dt,time){
+ const tg=T.target;
+ if(!T.visible){T.mesh.visible=false;T.has=false;T.n=0;return}
+ const hx=tg.x,hy=tg.y,hz=tg.z;
+ if(!T.has||Math.hypot(hx-T.prev.x,hy-T.prev.y,hz-T.prev.z)>JUMP){T.n=0;T.has=true;T.prev.set(hx,hy,hz);T.spd=0}
+ const mvd=Math.hypot(hx-T.prev.x,hy-T.prev.y,hz-T.prev.z);
+ T.spd+=(mvd/Math.max(dt,.001)-T.spd)*Math.min(1,8*dt);T.prev.set(hx,hy,hz);
+ const k=Math.min(1,Math.max(0,(T.spd-2)/16));
+ if(k<.01){T.mesh.visible=false;T.n=0;return}
+ const H=T.hist;let add=T.n===0;
+ if(!add){const dx=hx-H[0],dy=hy-H[1],dz=hz-H[2];add=dx*dx+dy*dy+dz*dz>=STEP*STEP}
+ if(add){const keep=Math.min(T.n,MAXP-1);H.copyWithin(3,0,keep*3);H[0]=hx;H[1]=hy;H[2]=hz;T.n=keep+1}
+ // المسار من الرأس إلى الخلف، مقصوص عند 11 م بالضبط
+ let m=1,acc=0;PT[0]=hx;PT[1]=hy;PT[2]=hz;LL[0]=0;
+ for(let i=0;i<T.n&&m<MAXP+2;i++){
+  const x=H[i*3],y=H[i*3+1],z=H[i*3+2],px=PT[(m-1)*3],py=PT[(m-1)*3+1],pz=PT[(m-1)*3+2],d=Math.hypot(x-px,y-py,z-pz);
+  if(d<1e-4)continue;
+  if(acc+d>=LEN){const f=(LEN-acc)/d;PT[m*3]=px+(x-px)*f;PT[m*3+1]=py+(y-py)*f;PT[m*3+2]=pz+(z-pz)*f;acc=LEN;LL[m]=acc;m++;break}
+  acc+=d;PT[m*3]=x;PT[m*3+1]=y;PT[m*3+2]=z;LL[m]=acc;m++}
+ if(m<2||acc<.3){T.mesh.visible=false;return}
+ const cp=cam.position,dist=Math.hypot(hx-cp.x,hy-cp.y,hz-cp.z),w0=W0*(T.far?Math.min(5,Math.max(1,dist/40)):1),Lend=LL[m-1],pos=T.pos,aT=T.aT;
+ for(let i=0;i<m;i++){
+  const a=Math.max(i-1,0)*3,b=Math.min(i+1,m-1)*3,c=i*3;
+  tv.set(PT[a]-PT[b],PT[a+1]-PT[b+1],PT[a+2]-PT[b+2]);if(tv.lengthSq()<1e-8)tv.set(0,0,1);tv.normalize();
+  vv.set(cp.x-PT[c],cp.y-PT[c+1],cp.z-PT[c+2]);const vl=Math.max(vv.length(),1e-3);vv.multiplyScalar(1/vl);
+  sd.crossVectors(tv,vv);const l=sd.length();
+  if(l<.25){ // الكاميرا على امتداد الشريط: ثبّت الاتجاه الجانبي لتجنب الارتجاف
+   sb.crossVectors(tv,Math.abs(tv.y)>.95?new THREE.Vector3(1,0,0):UP).normalize();if(sb.dot(sd)<0)sb.negate();
+   sd.multiplyScalar(1).addScaledVector(sb,(.25-l)*4)}
+  if(sd.lengthSq()<1e-8)sd.set(1,0,0);sd.normalize();
+  const u=LL[i]/Lend,amp=AMP*Math.pow(u,.8)*(.35+.65*k),ph=LL[i]*.85-time*8+T.ph,sn=Math.sin(ph)*amp,cs=Math.cos(ph*.7+1)*amp*.6,w=w0*(1-.82*u)*(.55+.45*k)*.5;
+  const cx=PT[c]+sd.x*sn,cy=PT[c+1]+sd.y*sn+cs,cz=PT[c+2]+sd.z*sn,o=i*6;
+  pos[o]=cx-sd.x*w;pos[o+1]=cy-sd.y*w;pos[o+2]=cz-sd.z*w;pos[o+3]=cx+sd.x*w;pos[o+4]=cy+sd.y*w;pos[o+5]=cz+sd.z*w;
+  aT[i*2]=u;aT[i*2+1]=u}
+ T.g.attributes.position.needsUpdate=true;T.g.attributes.aT.needsUpdate=true;T.g.setDrawRange(0,(m-1)*6);
+ T.m.uniforms.uOp.value=k*T.op;T.mesh.visible=true}
+function step(dt,time){list.forEach(T=>upd(T,dt,time))}
+function colorFor(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return new THREE.Color().setHSL((h%360)/360,1,.6)}
+return{create,step,colorFor}})();
+// شريط اللاعب المحلي + ربطه بالرسم
+const myTrail=DFTrail.create(0x4fd8ff,Rot.position,{op:1});
+{const _pa=window.placeAt;window.placeAt=function(){myTrail.reset();return _pa.apply(this,arguments)};
+ const _r=renderer.render.bind(renderer);let lt=performance.now();
+ renderer.render=function(a,b){const n=performance.now(),dt=Math.min((n-lt)/1000,.05);lt=n;try{DFTrail.step(dt,n/1000)}catch(e){}return _r(a,b)}}
 </script>
 <script>
 /* =====================================================================
@@ -1723,14 +1993,14 @@ EL.push(['qmBtn','رسائل سريعة 💬']);applyLay1('qmBtn');
    - اللعب الفردي لا يتأثر: لو فشل الاتصال تبقى اللعبة تعمل كما هي.
    - البيانات: rooms/{room}/players/{uid} و rooms/{room}/msg/{uid}
    - عالم الغرفة = عالم "المضيف" (أقدم لاعب في الغرفة). الباقون يلحقون به تلقائياً.
-   - الشخصيات البعيدة: تكبر تدريجياً حتى لا تصغر عن حدّ أدنى مرئي + مؤشر اتجاه صغير شفاف.
+   - اللاعب البعيد خارج الشاشة: مؤشر اتجاه صغير شفاف فقط (بدون تكبير للشخصيات).
    ===================================================================== */
 (function(){
 const FB_CONFIG={apiKey:"AIzaSyDf-Y-2fPwBAcCgGGVOOjjWp762eQhG35k",authDomain:"deep-flight-a24c9.firebaseapp.com",projectId:"deep-flight-a24c9",storageBucket:"deep-flight-a24c9.firebasestorage.app",messagingSenderId:"935530439325",appId:"1:935530439325:web:50bb029edb74206e8bea74"};
 const DB_URL='https://deep-flight-a24c9-default-rtdb.europe-west1.firebasedatabase.app';
 const SDK='https://www.gstatic.com/firebasejs/10.12.2/firebase-';
 const MAXP=8,SEND_MS=100,HEART_MS=3000,STALE_MS=12000,POS_EPS=.05,ROT_EPS=.01;
-const MIN_FRAC=.055,CHAR_H=2.6,MAX_SCALE=80,FAR_NEAR=60,JOIN_FAR=120;   // الحد الأدنى لحجم الشخصية على الشاشة (نسبة من ارتفاع الشاشة)
+const FAR_NEAR=60,JOIN_FAR=120;
 try{
 const oRoom=$('oRoom'),oGo=$('oGo'),oSt=$('oSt'),oCur=$('ocur'),oList=$('oList'),oJoin=$('oJoin'),oInd=$('oInd'),indLay=$('onInd');
 const sdkP={};
@@ -1759,11 +2029,11 @@ const inds={};            // مؤشرات الاتجاه
 function mkRemote(){const g=new THREE.Group();g.rotation.order='YXZ';g.add(P.clone(true),C3.clone(true));scene.add(g);return g}
 function putRemote(uid,v){
  let r=R[uid];
- if(!r){r={g:mkRemote(),tp:new THREE.Vector3(v.x,v.y,v.z),tr:{x:v.a||0,y:v.b||0,z:v.c||0},seen:0,w:0};r.g.position.copy(r.tp);r.g.rotation.set(r.tr.x,r.tr.y,r.tr.z);R[uid]=r;if(!inds[uid]){const e=document.createElement('i');e.textContent='▲';e.style.display='none';indLay.appendChild(e);inds[uid]=e}updCount()}
+ if(!r){r={g:mkRemote(),tp:new THREE.Vector3(v.x,v.y,v.z),tr:{x:v.a||0,y:v.b||0,z:v.c||0},seen:0,w:0};r.g.position.copy(r.tp);r.g.rotation.set(r.tr.x,r.tr.y,r.tr.z);r.trl=window.DFTrail?DFTrail.create(DFTrail.colorFor(uid),r.g.position,{far:true,op:1}):null;R[uid]=r;if(!inds[uid]){const e=document.createElement('i');e.textContent='▲';e.style.display='none';indLay.appendChild(e);inds[uid]=e}updCount()}
  r.tp.set(v.x,v.y,v.z);r.tr.x=v.a||0;r.tr.y=v.b||0;r.tr.z=v.c||0;r.seen=performance.now();r.w=v.w|0;
  r.g.children[0].visible=(v.k|0)===0;r.g.children[1].visible=(v.k|0)===1;
 }
-function dropRemote(uid){const r=R[uid];if(r){scene.remove(r.g);delete R[uid]}delete TB[uid];if(inds[uid]){inds[uid].remove();delete inds[uid]}QMAPI.drop(uid);updCount();listUI()}
+function dropRemote(uid){const r=R[uid];if(r){scene.remove(r.g);if(r.trl)r.trl.dispose();delete R[uid]}delete TB[uid];if(inds[uid]){inds[uid].remove();delete inds[uid]}QMAPI.drop(uid);updCount();listUI()}
 function updCount(){const n=Object.keys(R).length;oCur.textContent=live?('· '+(n+1)+' 👥'):''}
 
 /* ---- المضيف = أقدم لاعب (أصغر j) ---- */
@@ -1793,17 +2063,15 @@ oJoin.addEventListener('click',()=>{followHost();showPg('pgM')});
 /* ---- المحاكاة: حركة سلسة + حدّ أدنى للحجم + مؤشرات الاتجاه ---- */
 const _p=new THREE.Vector3();
 function remoteStep(dt){
- const k=1-Math.exp(-14*dt),now=performance.now(),mi=myIdx(),tanH=Math.tan(cam.fov*Math.PI/360);
+ const k=1-Math.exp(-14*dt),now=performance.now(),mi=myIdx();
  const W2=innerWidth,H2=innerHeight,ml=Math.min(W2,H2)*.06+10;
  for(const uid in R){const r=R[uid],g=r.g,ind=inds[uid];
-  const vis=(now-r.seen<STALE_MS)&&r.w===mi;g.visible=vis;
+  const vis=(now-r.seen<STALE_MS)&&r.w===mi;g.visible=vis;if(r.trl)r.trl.visible=vis;
   if(!vis){if(ind)ind.style.display='none';continue}
   g.position.lerp(r.tp,k);
   g.rotation.x+=(r.tr.x-g.rotation.x)*k;g.rotation.z+=(r.tr.z-g.rotation.z)*k;
   const d=((r.tr.y-g.rotation.y+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;g.rotation.y+=d*k;
-  // حجم أدنى مرئي: كلما بعدت الشخصية تكبر بهدوء حتى لا تختفي
-  const dist=cam.position.distanceTo(g.position),frac=CHAR_H/(2*Math.max(dist,.1)*tanH);
-  g.scale.setScalar(Math.min(MAX_SCALE,Math.max(1,MIN_FRAC/frac)));
+  const dist=cam.position.distanceTo(g.position);
   // مؤشر اتجاه صغير شفاف للاعب البعيد خارج الشاشة فقط
   if(ind){
    let show=false;
