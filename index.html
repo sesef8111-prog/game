@@ -80,6 +80,10 @@ body.ed .ed-el.ed-sel{outline-color:#ffd23f}
 #qmList button:active{background:rgba(159,232,255,.3);border-color:#9fe8ff}
 #oRoom{flex:1;min-width:0;padding:10px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.08);color:var(--fg);font-family:inherit;direction:ltr;-webkit-user-select:text;user-select:text}
 #oGo{padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.12)}
+#onInd{position:fixed;inset:0;pointer-events:none;z-index:4;overflow:hidden}
+#onInd i{position:absolute;left:0;top:0;width:18px;height:18px;margin:-9px 0 0 -9px;font-style:normal;font-size:14px;line-height:18px;text-align:center;color:rgba(159,232,255,.8);text-shadow:0 0 6px rgba(0,0,0,.6);will-change:transform}
+body.m #onInd,body.ed #onInd{display:none}
+.orow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}.orow button{padding:6px 10px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.12);white-space:nowrap}
 body.m #qmBtn,body.m #qmList{display:none!important}
 </style>
 <script>
@@ -1203,7 +1207,7 @@ gl_FragColor=vec4(c,1.);}`}));
 <div id="stick"><div id="knob"></div></div>
 <button id="boost">تسارع</button><button id="jump">قفز</button><button id="surge">اندفاع</button>
 <button id="mode">جو</button><button id="camb">منظور: ثالث</button><button id="cmb">قتال</button><button id="mbtn">📜</button>
-<button id="qmBtn" aria-label="رسائل سريعة">💬 رسائل</button><div id="qmList"></div>
+<div id="onInd"></div><button id="qmBtn" aria-label="رسائل سريعة">💬 رسائل</button><div id="qmList"></div>
 <div id="menu">
 <div class="pg on" id="pgM"><h1>📜 القائمة</h1>
 <button class="big" data-pg="pgC">🧍 اختيار الشخصية</button>
@@ -1235,7 +1239,10 @@ gl_FragColor=vec4(c,1.);}`}));
 <div class="pg" id="pgO"><div class="hd"><button class="back" data-pg="pgM">→ رجوع</button><h1>🌐 اللعب الأونلاين</h1></div>
 <div class="lbl">رمز الغرفة (إنجليزي/أرقام) — شاركه مع أصدقائك ليدخلوا نفس الغرفة</div>
 <div class="row"><input id="oRoom" maxlength="12" autocomplete="off" spellcheck="false"><button id="oGo">اتصال</button></div>
-<div class="lbl" id="oSt"></div></div>
+<div class="lbl" id="oSt"></div>
+<button class="big" id="oJoin" style="display:none">🧲 الانضمام إلى المجموعة</button>
+<div id="oList" class="lbl"></div>
+<button class="big" id="oInd"></button></div>
 <button id="go">ابدأ</button></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -1690,7 +1697,7 @@ function qmStep(){
   if(b.t<0||!tex){spr.visible=false;continue}
   b.t+=dt;if(b.t>=QM_SHOW){b.t=-1;spr.visible=false;continue}
   if(b.local){if(fpT>.5||menuOpen){spr.visible=false;continue}spr.position.set(pos.x,pos.y+QM_RISE,pos.z)}
-  else{const a=b.anchor;if(!a||!a.visible){spr.visible=false;continue}spr.position.set(a.position.x,a.position.y+QM_RISE,a.position.z)}
+  else{const a=b.anchor;if(!a||!a.visible){spr.visible=false;continue}spr.position.set(a.position.x,a.position.y+QM_RISE*(a.scale.x||1),a.position.z)}
   spr.visible=true;
   // constant on-screen size (a fraction of the view height), capped by view width; slight pop-in
   const d=cam.position.distanceTo(spr.position),vh=2*d*Math.tan(cam.fov*Math.PI/360);
@@ -1715,57 +1722,130 @@ EL.push(['qmBtn','رسائل سريعة 💬']);applyLay1('qmBtn');
    - لا يُحمَّل أي شيء من Firebase إلا عند الضغط على «اتصال» في القائمة.
    - اللعب الفردي لا يتأثر: لو فشل الاتصال تبقى اللعبة تعمل كما هي.
    - البيانات: rooms/{room}/players/{uid} و rooms/{room}/msg/{uid}
+   - عالم الغرفة = عالم "المضيف" (أقدم لاعب في الغرفة). الباقون يلحقون به تلقائياً.
+   - الشخصيات البعيدة: تكبر تدريجياً حتى لا تصغر عن حدّ أدنى مرئي + مؤشر اتجاه صغير شفاف.
    ===================================================================== */
 (function(){
 const FB_CONFIG={apiKey:"AIzaSyDf-Y-2fPwBAcCgGGVOOjjWp762eQhG35k",authDomain:"deep-flight-a24c9.firebaseapp.com",projectId:"deep-flight-a24c9",storageBucket:"deep-flight-a24c9.firebasestorage.app",messagingSenderId:"935530439325",appId:"1:935530439325:web:50bb029edb74206e8bea74"};
-// رابط قاعدة البيانات (منطقة europe-west1) - من Firebase Console > Realtime Database
 const DB_URL='https://deep-flight-a24c9-default-rtdb.europe-west1.firebasedatabase.app';
 const SDK='https://www.gstatic.com/firebasejs/10.12.2/firebase-';
 const MAXP=8,SEND_MS=100,HEART_MS=3000,STALE_MS=12000,POS_EPS=.05,ROT_EPS=.01;
+const MIN_FRAC=.055,CHAR_H=2.6,MAX_SCALE=80,FAR_NEAR=60,JOIN_FAR=120;   // الحد الأدنى لحجم الشخصية على الشاشة (نسبة من ارتفاع الشاشة)
 try{
-const oRoom=$('oRoom'),oGo=$('oGo'),oSt=$('oSt'),oCur=$('ocur');
+const oRoom=$('oRoom'),oGo=$('oGo'),oSt=$('oSt'),oCur=$('ocur'),oList=$('oList'),oJoin=$('oJoin'),oInd=$('oInd'),indLay=$('onInd');
 const sdkP={};
 function load(src){return sdkP[src]||(sdkP[src]=new Promise((ok,no)=>{const s=document.createElement('script');s.src=src;s.onload=ok;s.onerror=()=>no(new Error('sdk'));document.head.appendChild(s)}))}
 async function ensureSdk(){await load(SDK+'app-compat.js');await Promise.all([load(SDK+'auth-compat.js'),load(SDK+'database-compat.js')])}
 const setSt=(t,bad)=>{oSt.textContent=t;oSt.style.color=bad?'#ff9b9b':''};
 try{oRoom.value=localStorage.getItem('df_room')||'main'}catch(_){oRoom.value='main'}
+let showInd=true;try{showInd=localStorage.getItem('df_ind')!=='0'}catch(_){}
+const paintInd=()=>{oInd.textContent='مؤشرات اتجاه اللاعبين البعيدين: '+(showInd?'تشغيل':'إيقاف')};paintInd();
+oInd.addEventListener('click',()=>{showInd=!showInd;try{localStorage.setItem('df_ind',showInd?'1':'0')}catch(_){}paintInd()});
 
-let live=null;            // active session
-const R={};               // remote players: uid -> {g,tp,tr,seen}
+/* ---- العالم الحالي: نتتبعه بلفّ loadWorld (بدون تعديل الدالة الأصلية) ---- */
+let curW=(new URLSearchParams(location.search).get('world'))||CFG.world||'';
+{const _lw=window.loadWorld;window.loadWorld=function(f){curW=f||'';return _lw.apply(this,arguments)}}
+const worlds=()=>window.DF_WORLDS||[];
+const idxOf=f=>{if(!f)return 0;const i=worlds().findIndex(w=>w.f===f);return i<0?99:i+1};
+const fileOf=i=>i>0&&worlds()[i-1]?worlds()[i-1].f:'';
+const nameOf=i=>i===0?'الفراغ':(worlds()[i-1]?worlds()[i-1].n:'عالم');
+const myIdx=()=>idxOf(curW);
 
-function mkRemote(){
- const g=new THREE.Group();g.rotation.order='YXZ';
- const a=P.clone(true),c=C3.clone(true);g.add(a,c);scene.add(g);return g;
-}
+let live=null;            // الجلسة الحالية
+const R={};               // نسخ اللاعبين الآخرين: uid -> {g,tp,tr,seen,w}
+const TB={};              // جدول بيانات اللاعبين الآخرين: uid -> {w,j,x,y,z,b}
+const inds={};            // مؤشرات الاتجاه
+
+function mkRemote(){const g=new THREE.Group();g.rotation.order='YXZ';g.add(P.clone(true),C3.clone(true));scene.add(g);return g}
 function putRemote(uid,v){
  let r=R[uid];
- if(!r){r={g:mkRemote(),tp:new THREE.Vector3(v.x,v.y,v.z),tr:{x:v.a||0,y:v.b||0,z:v.c||0},seen:0};r.g.position.copy(r.tp);r.g.rotation.set(r.tr.x,r.tr.y,r.tr.z);R[uid]=r;updCount()}
- r.tp.set(v.x,v.y,v.z);r.tr.x=v.a||0;r.tr.y=v.b||0;r.tr.z=v.c||0;r.seen=performance.now();
+ if(!r){r={g:mkRemote(),tp:new THREE.Vector3(v.x,v.y,v.z),tr:{x:v.a||0,y:v.b||0,z:v.c||0},seen:0,w:0};r.g.position.copy(r.tp);r.g.rotation.set(r.tr.x,r.tr.y,r.tr.z);R[uid]=r;if(!inds[uid]){const e=document.createElement('i');e.textContent='▲';e.style.display='none';indLay.appendChild(e);inds[uid]=e}updCount()}
+ r.tp.set(v.x,v.y,v.z);r.tr.x=v.a||0;r.tr.y=v.b||0;r.tr.z=v.c||0;r.seen=performance.now();r.w=v.w|0;
  r.g.children[0].visible=(v.k|0)===0;r.g.children[1].visible=(v.k|0)===1;
 }
-function dropRemote(uid){const r=R[uid];if(!r)return;scene.remove(r.g);delete R[uid];QMAPI.drop(uid);updCount()}
+function dropRemote(uid){const r=R[uid];if(r){scene.remove(r.g);delete R[uid]}delete TB[uid];if(inds[uid]){inds[uid].remove();delete inds[uid]}QMAPI.drop(uid);updCount();listUI()}
 function updCount(){const n=Object.keys(R).length;oCur.textContent=live?('· '+(n+1)+' 👥'):''}
 
+/* ---- المضيف = أقدم لاعب (أصغر j) ---- */
+function hostUid(){let h=live.uid,hj=live.j;for(const u in TB){const t=TB[u];if(t.j<hj||(t.j===hj&&u<h)){h=u;hj=t.j}}return h}
+function rank(){const a=[[live.uid,live.j]];for(const u in TB)a.push([u,TB[u].j]);a.sort((p,q)=>p[1]-q[1]||(p[0]<q[0]?-1:1));const m={};a.forEach((e,i)=>m[e[0]]=i+1);return m}
+
+/* ---- الانتقال إلى لاعب (يغيّر العالم عند الحاجة ثم ينقلك بجانبه) ---- */
+let goTok=0;
+function nearPlayer(uid){
+ const t=TB[uid];if(!t)return;
+ const yw=t.b||0;placeAt(t.x-Math.sin(yw)*8,t.y+2.5,t.z-Math.cos(yw)*8,yw);
+}
+function goTo(uid,quiet){
+ if(!live||!TB[uid])return;const tk=++goTok,w=TB[uid].w|0;
+ if(w!==myIdx()){
+  if(!quiet)say('الانتقال إلى عالم «'+nameOf(w)+'»...');
+  loadWorld(fileOf(w));let n=0;
+  const iv=setInterval(()=>{n++;
+   if(tk!==goTok||!live){clearInterval(iv);return}
+   if(w===0||W!==null||n>60){clearInterval(iv);if(n>60&&w!==0)return say('⚠ تعذّر تحميل عالم المجموعة');if(TB[uid])nearPlayer(uid)}
+  },150);
+ }else{nearPlayer(uid);if(!quiet)say('تم الانتقال')}
+}
+function followHost(){if(!live)return;const h=hostUid();if(h===live.uid){setSt('أنت مضيف الغرفة — الآخرون سينضمون إلى عالمك');return}goTo(h,false)}
+oJoin.addEventListener('click',()=>{followHost();showPg('pgM')});
+
+/* ---- المحاكاة: حركة سلسة + حدّ أدنى للحجم + مؤشرات الاتجاه ---- */
+const _p=new THREE.Vector3();
 function remoteStep(dt){
- const k=1-Math.exp(-14*dt),now=performance.now();
- for(const uid in R){const r=R[uid],g=r.g;
-  g.visible=now-r.seen<STALE_MS;if(!g.visible)continue;
+ const k=1-Math.exp(-14*dt),now=performance.now(),mi=myIdx(),tanH=Math.tan(cam.fov*Math.PI/360);
+ const W2=innerWidth,H2=innerHeight,ml=Math.min(W2,H2)*.06+10;
+ for(const uid in R){const r=R[uid],g=r.g,ind=inds[uid];
+  const vis=(now-r.seen<STALE_MS)&&r.w===mi;g.visible=vis;
+  if(!vis){if(ind)ind.style.display='none';continue}
   g.position.lerp(r.tp,k);
   g.rotation.x+=(r.tr.x-g.rotation.x)*k;g.rotation.z+=(r.tr.z-g.rotation.z)*k;
-  const d=((r.tr.y-g.rotation.y+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;g.rotation.y+=d*k}
+  const d=((r.tr.y-g.rotation.y+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;g.rotation.y+=d*k;
+  // حجم أدنى مرئي: كلما بعدت الشخصية تكبر بهدوء حتى لا تختفي
+  const dist=cam.position.distanceTo(g.position),frac=CHAR_H/(2*Math.max(dist,.1)*tanH);
+  g.scale.setScalar(Math.min(MAX_SCALE,Math.max(1,MIN_FRAC/frac)));
+  // مؤشر اتجاه صغير شفاف للاعب البعيد خارج الشاشة فقط
+  if(ind){
+   let show=false;
+   if(showInd&&dist>FAR_NEAR&&!document.body.classList.contains('m')){
+    _p.copy(g.position).project(cam);
+    const behind=_p.z>1;let nx=_p.x,ny=_p.y;if(behind){nx=-nx;ny=-ny}
+    if(behind||Math.abs(nx)>.94||Math.abs(ny)>.94){
+     const m=Math.max(Math.abs(nx),Math.abs(ny),1e-4);nx/=m;ny/=m;     // اسقاط على حافة الشاشة
+     const x=W2/2+nx*(W2/2-ml),y=H2/2-ny*(H2/2-ml),ang=Math.atan2(-ny,nx)*180/Math.PI+90;
+     ind.style.transform='translate('+x.toFixed(1)+'px,'+y.toFixed(1)+'px) rotate('+ang.toFixed(0)+'deg)';show=true}
+   }
+   ind.style.display=show?'block':'none';
+  }
+ }
 }
 const _render=renderer.render.bind(renderer);let lastT=performance.now();
 renderer.render=function(a,b){try{const n=performance.now(),dt=Math.min((n-lastT)/1000,.05);lastT=n;remoteStep(dt)}catch(e){}return _render(a,b)};
 
+/* ---- إرسال حالتي ---- */
 const rd=(v,n)=>Math.round(v*n)/n;
 function sendState(force){
  if(!live)return;const L=live,p=Rot.position,q=Rot.rotation,now=performance.now();
- const s={x:rd(p.x,100),y:rd(p.y,100),z:rd(p.z,100),a:rd(q.x,1000),b:rd(q.y,1000),c:rd(q.z,1000),k:chIdx,h:Math.floor(now/HEART_MS)%1000};
- const o=L.last,moved=!o||Math.abs(s.x-o.x)+Math.abs(s.y-o.y)+Math.abs(s.z-o.z)>POS_EPS||Math.abs(s.a-o.a)+Math.abs(s.b-o.b)+Math.abs(s.c-o.c)>ROT_EPS||s.k!==o.k;
- if(!moved&&!(now-L.lastSend>HEART_MS))return;
+ const s={x:rd(p.x,100),y:rd(p.y,100),z:rd(p.z,100),a:rd(q.x,1000),b:rd(q.y,1000),c:rd(q.z,1000),k:chIdx,w:myIdx(),j:L.j,h:Math.floor(now/HEART_MS)%1000};
+ const o=L.last,moved=!o||Math.abs(s.x-o.x)+Math.abs(s.y-o.y)+Math.abs(s.z-o.z)>POS_EPS||Math.abs(s.a-o.a)+Math.abs(s.b-o.b)+Math.abs(s.c-o.c)>ROT_EPS||s.k!==o.k||s.w!==o.w;
+ if(!force&&!moved&&!(now-L.lastSend>HEART_MS))return;
  L.last=s;L.lastSend=now;L.me.set(s).catch(()=>{});
 }
 
+/* ---- قائمة اللاعبين في صفحة الأونلاين (للانتقال إليهم) ---- */
+function listUI(){
+ if(!oList||!live||!$('pgO').classList.contains('on'))return;
+ const rk=rank(),h=hostUid(),mi=myIdx(),ids=Object.keys(TB).sort((a,b)=>rk[a]-rk[b]);
+ oList.innerHTML='';
+ if(!ids.length){oList.textContent='لا يوجد لاعبون آخرون بعد — شارك رمز الغرفة';return}
+ ids.forEach(u=>{const t=TB[u],row=document.createElement('div');row.className='orow';
+  const same=(t.w|0)===mi,dist=same?Math.round(Math.hypot(t.x-Rot.position.x,t.y-Rot.position.y,t.z-Rot.position.z)):null;
+  const lb=document.createElement('span');lb.textContent='لاعب '+rk[u]+(u===h?' 👑':'')+' · '+nameOf(t.w|0)+(same?' · '+dist+'م':'');
+  const b=document.createElement('button');b.textContent='انتقل إليه';b.onclick=()=>{goTo(u,false);showPg('pgM')};
+  row.append(lb,b);oList.appendChild(row)});
+}
+
+/* ---- الاتصال ---- */
 async function connect(){
  const room=(oRoom.value||'main').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,12)||'main';oRoom.value=room;
  try{localStorage.setItem('df_room',room)}catch(_){}
@@ -1781,15 +1861,33 @@ async function connect(){
   const m0=await mRef.once('value'),seen={};m0.forEach(c=>{seen[c.key]=(c.val()||{}).n});
   const me=pRef.child(uid),mm=mRef.child(uid);
   me.onDisconnect().remove();mm.onDisconnect().remove();
-  const onP=s=>{if(s.key===uid)return;const v=s.val();if(v&&typeof v.x==='number'&&typeof v.y==='number'&&typeof v.z==='number')putRemote(s.key,v)};
+  const L={uid,room,me,mm,pRef,mRef,last:null,lastSend:0,n:0,j:Date.now()};
+  // ملاحظة: ننضم كآخر لاعب (j الأحدث) فيبقى المضيف الأقدم كما هو
+  snap.forEach(c=>{const v=c.val();if(c.key!==uid&&v&&typeof v.x==='number')TB[c.key]={w:v.w|0,j:v.j||0,x:v.x,y:v.y,z:v.z,b:v.b||0}});
+  const onP=s=>{
+   if(s.key===uid)return;const v=s.val();
+   if(!v||typeof v.x!=='number'||typeof v.y!=='number'||typeof v.z!=='number')return;
+   const prev=TB[s.key],h0=hostUid();
+   TB[s.key]={w:v.w|0,j:v.j||0,x:v.x,y:v.y,z:v.z,b:v.b||0};
+   putRemote(s.key,v);
+   // المضيف غيّر عالمه وأنا كنت معه ← ألحق به تلقائياً (إن كنت قد ابتعدت يدوياً لا أُزعجك)
+   if(prev&&s.key===h0&&h0!==uid&&(prev.w|0)!==(v.w|0)&&(prev.w|0)===myIdx()){say('المضيف انتقل إلى «'+nameOf(v.w|0)+'»');goTo(s.key,true)}
+   listUI();
+  };
   const onG=s=>dropRemote(s.key);
   const onM=s=>{const v=s.val();if(s.key===uid||!v||seen[s.key]===v.n)return;seen[s.key]=v.n;if(R[s.key])QMAPI.say(s.key,v.i|0,R[s.key].g,false)};
+  L.onP=onP;L.onG=onG;L.onM=onM;live=L;
   pRef.on('child_added',onP);pRef.on('child_changed',onP);pRef.on('child_removed',onG);
   mRef.on('child_added',onM);mRef.on('child_changed',onM);
-  live={uid,room,me,mm,pRef,mRef,onP,onG,onM,last:null,lastSend:0,iv:setInterval(()=>sendState(false),SEND_MS),n:0};
+  L.iv=setInterval(()=>{sendState(false)},SEND_MS);L.iv2=setInterval(listUI,1500);
   QMAPI.onSend=i=>{if(live)live.mm.set({i:i,n:Date.now()+(++live.n)}).catch(()=>{})};
+  // أول انضمام: ادخل عالم المضيف وقف بالقرب منه (مرة واحدة فقط)
+  const ex=Object.keys(TB);
+  if(ex.length){const h=hostUid(),t=TB[h];
+   if((t.w|0)!==myIdx())goTo(h,false);
+   else if(Math.hypot(t.x-pos.x,t.y-pos.y,t.z-pos.z)>JOIN_FAR)nearPlayer(h)}
   sendState(true);
-  oGo.textContent='قطع الاتصال';oGo.disabled=false;updCount();
+  oGo.textContent='قطع الاتصال';oGo.disabled=false;oJoin.style.display='block';updCount();
   setSt('متصل بالغرفة «'+room+'» — اضغط «ابدأ» وشارك الرمز مع أصدقائك');
  }catch(e){
   const c=(e&&(e.code||e.message))||'';
@@ -1804,9 +1902,9 @@ async function connect(){
  }
 }
 function teardown(){
- const L=live;live=null;QMAPI.onSend=null;
- if(L){clearInterval(L.iv);try{L.pRef.off('child_added',L.onP);L.pRef.off('child_changed',L.onP);L.pRef.off('child_removed',L.onG);L.mRef.off('child_added',L.onM);L.mRef.off('child_changed',L.onM);L.me.remove();L.mm.remove()}catch(_){}}
- Object.keys(R).forEach(dropRemote);updCount();
+ const L=live;live=null;QMAPI.onSend=null;goTok++;
+ if(L){clearInterval(L.iv);clearInterval(L.iv2);try{L.pRef.off('child_added',L.onP);L.pRef.off('child_changed',L.onP);L.pRef.off('child_removed',L.onG);L.mRef.off('child_added',L.onM);L.mRef.off('child_changed',L.onM);L.me.remove();L.mm.remove()}catch(_){}}
+ Object.keys(R).forEach(dropRemote);Object.keys(TB).forEach(u=>delete TB[u]);oList.innerHTML='';oJoin.style.display='none';updCount();
 }
 oGo.addEventListener('click',()=>{if(live){teardown();oGo.textContent='اتصال';setSt('غير متصل')}else connect()});
 setSt('غير متصل');
