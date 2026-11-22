@@ -1838,29 +1838,30 @@ requestAnimationFrame(frame);
 </script>
 <script>
 /* =====================================================================
-   شريط ضوئي خلف اللاعب (30 م): يتبع مسار الحركة ويتموج ويتلاشى عند الذيل
-   - مستقل: يعمل للاعب المحلي وللاعبين البعيدين (الأونلاين) ليسهل ملاحظتهم
-   - يتلاشى تدريجياً عند التوقف، ويخفت قرب الكاميرا حتى لا يحجب الرؤية
+   ذيل الطاقة: عدة طبقات (هالة + جسم + قلب + خطّان رفيعان متعرجان)
+   - يتبع المسار الفعلي، طوله يكبر مع السرعة، وأكثف وأعرض قرب الشخصية
+   - مستقل: للاعب المحلي وللاعبين البعيدين (الأونلاين)
    ===================================================================== */
 const DFTrail=(function(){
-const LEN=30,STEP=.6,MAXP=64,W0=2.2,AMP=.7,JUMP=80,list=new Set();
-const PT=new Float32Array((MAXP+2)*3),LL=new Float32Array(MAXP+2);
+const L0=32,L1=92,STEP=.7,MAXP=140,NS=40,W0=2.2,AMP=.7,JUMP=90,list=new Set();
+const PT=new Float32Array((MAXP+2)*3),LL=new Float32Array(MAXP+2),RS=new Float32Array(NS*3);
 const vs='attribute float aT;attribute float aS;varying float vT;varying float vS;varying float vZ;void main(){vT=aT;vS=aS;vec4 mv=modelViewMatrix*vec4(position,1.);vZ=-mv.z;gl_Position=projectionMatrix*mv;}';
-const fs='uniform vec3 uCol;uniform float uOp;varying float vT;varying float vS;varying float vZ;void main(){float e=1.-abs(vS);float f=1.-vT;float a=pow(e,1.5)*pow(f,1.3)*uOp*smoothstep(2.5,9.,vZ);vec3 c=mix(uCol,vec3(1.),pow(e,4.)*.75*f);gl_FragColor=vec4(c,a);}';
-function create(color,target,opt){
- opt=opt||{};const maxV=(MAXP+2)*2,pos=new Float32Array(maxV*3),aT=new Float32Array(maxV),aS=new Float32Array(maxV),idx=[];
- for(let i=0;i<MAXP+1;i++){const a=2*i;idx.push(a,a+1,a+2,a+1,a+3,a+2)}
- for(let i=0;i<=MAXP+1;i++){aS[2*i]=-1;aS[2*i+1]=1}
+const fs='uniform vec3 uCol;uniform float uOp,uF,uE,uW;varying float vT;varying float vS;varying float vZ;void main(){float e=1.-abs(vS);float f=1.-vT;float a=pow(e,uE)*pow(f,uF)*uOp*smoothstep(2.5,9.,vZ);vec3 c=mix(uCol,vec3(1.),pow(e,4.)*uW*f);gl_FragColor=vec4(c,a);}';
+function create(color,target,o){
+ o=o||{};const maxV=NS*2,pos=new Float32Array(maxV*3),aT=new Float32Array(maxV),aS=new Float32Array(maxV),idx=[];
+ for(let i=0;i<NS-1;i++){const a=2*i;idx.push(a,a+1,a+2,a+1,a+3,a+2)}
+ for(let i=0;i<NS;i++){aS[2*i]=-1;aS[2*i+1]=1}
  const g=new THREE.BufferGeometry();
  g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('aT',new THREE.BufferAttribute(aT,1));g.setAttribute('aS',new THREE.BufferAttribute(aS,1));
  g.setIndex(idx);g.setDrawRange(0,0);
- const m=new THREE.ShaderMaterial({uniforms:{uCol:{value:new THREE.Color(color)},uOp:{value:0}},vertexShader:vs,fragmentShader:fs,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false});
+ const m=new THREE.ShaderMaterial({uniforms:{uCol:{value:new THREE.Color(color)},uOp:{value:0},uF:{value:o.fade||1.3},uE:{value:o.edge||1.5},uW:{value:o.wm==null?.75:o.wm}},vertexShader:vs,fragmentShader:fs,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false});
  const mesh=new THREE.Mesh(g,m);mesh.frustumCulled=false;mesh.renderOrder=2;mesh.visible=false;scene.add(mesh);
- const T={target,mesh,g,m,pos,aT,visible:true,far:!!opt.far,op:opt.op||1,hist:new Float32Array(MAXP*3),n:0,prev:new THREE.Vector3(),has:false,spd:0,ph:Math.random()*6.283,
+ const T={target,mesh,g,m,pos,aT,visible:true,far:!!o.far,op:o.op||1,ws:o.ws||1,am:o.amp==null?1:o.amp,fr:o.fr||1,off:o.off||0,lk:o.lk||1,len:L0*(o.lk||1),
+  hist:new Float32Array(MAXP*3),n:0,prev:new THREE.Vector3(),has:false,spd:0,ph:Math.random()*6.283,
   reset(){this.n=0;this.has=false;this.mesh.visible=false},
   dispose(){scene.remove(mesh);g.dispose();m.dispose();list.delete(this)}};
  list.add(T);return T}
-const sd=new THREE.Vector3(),sb=new THREE.Vector3(),tv=new THREE.Vector3(),vv=new THREE.Vector3(),UP=new THREE.Vector3(0,1,0);
+const sd=new THREE.Vector3(),sb=new THREE.Vector3(),tv=new THREE.Vector3(),vv=new THREE.Vector3(),UP=new THREE.Vector3(0,1,0),EX=new THREE.Vector3(1,0,0);
 function upd(T,dt,time){
  const tg=T.target;
  if(!T.visible){T.mesh.visible=false;T.has=false;T.n=0;return}
@@ -1870,10 +1871,10 @@ function upd(T,dt,time){
  T.spd+=(mvd/Math.max(dt,.001)-T.spd)*Math.min(1,8*dt);T.prev.set(hx,hy,hz);
  const k=Math.min(1,Math.max(0,(T.spd-2)/16));
  if(k<.01){T.mesh.visible=false;T.n=0;return}
+ const want=(L0+(L1-L0)*Math.min(1,Math.max(0,(T.spd-50)/320)))*T.lk;T.len+=(want-T.len)*Math.min(1,6*dt);const LEN=T.len;
  const H=T.hist;let add=T.n===0;
  if(!add){const dx=hx-H[0],dy=hy-H[1],dz=hz-H[2];add=dx*dx+dy*dy+dz*dz>=STEP*STEP}
  if(add){const keep=Math.min(T.n,MAXP-1);H.copyWithin(3,0,keep*3);H[0]=hx;H[1]=hy;H[2]=hz;T.n=keep+1}
- // المسار من الرأس إلى الخلف، مقصوص عند 11 م بالضبط
  let m=1,acc=0;PT[0]=hx;PT[1]=hy;PT[2]=hz;LL[0]=0;
  for(let i=0;i<T.n&&m<MAXP+2;i++){
   const x=H[i*3],y=H[i*3+1],z=H[i*3+2],px=PT[(m-1)*3],py=PT[(m-1)*3+1],pz=PT[(m-1)*3+2],d=Math.hypot(x-px,y-py,z-pz);
@@ -1881,30 +1882,180 @@ function upd(T,dt,time){
   if(acc+d>=LEN){const f=(LEN-acc)/d;PT[m*3]=px+(x-px)*f;PT[m*3+1]=py+(y-py)*f;PT[m*3+2]=pz+(z-pz)*f;acc=LEN;LL[m]=acc;m++;break}
   acc+=d;PT[m*3]=x;PT[m*3+1]=y;PT[m*3+2]=z;LL[m]=acc;m++}
  if(m<2||acc<.3){T.mesh.visible=false;return}
- const cp=cam.position,dist=Math.hypot(hx-cp.x,hy-cp.y,hz-cp.z),w0=W0*(T.far?Math.min(5,Math.max(1,dist/40)):1),Lend=LL[m-1],pos=T.pos,aT=T.aT;
- for(let i=0;i<m;i++){
-  const a=Math.max(i-1,0)*3,b=Math.min(i+1,m-1)*3,c=i*3;
-  tv.set(PT[a]-PT[b],PT[a+1]-PT[b+1],PT[a+2]-PT[b+2]);if(tv.lengthSq()<1e-8)tv.set(0,0,1);tv.normalize();
-  vv.set(cp.x-PT[c],cp.y-PT[c+1],cp.z-PT[c+2]);const vl=Math.max(vv.length(),1e-3);vv.multiplyScalar(1/vl);
+ // إعادة أخذ عيّنات بمسافات متساوية ليبقى التموج ناعماً حتى عند السرعات العالية
+ const Lend=LL[m-1];let seg=0;
+ for(let j=0;j<NS;j++){const s=j/(NS-1)*Lend;while(seg<m-2&&LL[seg+1]<s)seg++;const d=LL[seg+1]-LL[seg],f=d>1e-6?Math.min(1,(s-LL[seg])/d):0,a=seg*3;
+  RS[j*3]=PT[a]+(PT[a+3]-PT[a])*f;RS[j*3+1]=PT[a+1]+(PT[a+4]-PT[a+1])*f;RS[j*3+2]=PT[a+2]+(PT[a+5]-PT[a+2])*f}
+ const cp=cam.position,dist=Math.hypot(hx-cp.x,hy-cp.y,hz-cp.z),w0=W0*T.ws*(T.far?Math.min(5,Math.max(1,dist/40)):1),pos=T.pos,aT=T.aT;
+ for(let j=0;j<NS;j++){
+  const a=Math.max(j-1,0)*3,b=Math.min(j+1,NS-1)*3,c=j*3;
+  tv.set(RS[a]-RS[b],RS[a+1]-RS[b+1],RS[a+2]-RS[b+2]);if(tv.lengthSq()<1e-8)tv.set(0,0,1);tv.normalize();
+  vv.set(cp.x-RS[c],cp.y-RS[c+1],cp.z-RS[c+2]);vv.multiplyScalar(1/Math.max(vv.length(),1e-3));
   sd.crossVectors(tv,vv);const l=sd.length();
-  if(l<.25){ // الكاميرا على امتداد الشريط: ثبّت الاتجاه الجانبي لتجنب الارتجاف
-   sb.crossVectors(tv,Math.abs(tv.y)>.95?new THREE.Vector3(1,0,0):UP).normalize();if(sb.dot(sd)<0)sb.negate();
-   sd.multiplyScalar(1).addScaledVector(sb,(.25-l)*4)}
+  if(l<.25){sb.crossVectors(tv,Math.abs(tv.y)>.95?EX:UP).normalize();if(sb.dot(sd)<0)sb.negate();sd.addScaledVector(sb,(.25-l)*4)}
   if(sd.lengthSq()<1e-8)sd.set(1,0,0);sd.normalize();
-  const u=LL[i]/Lend,amp=AMP*Math.pow(u,.8)*(.35+.65*k),ph=LL[i]*.85-time*8+T.ph,sn=Math.sin(ph)*amp,cs=Math.cos(ph*.7+1)*amp*.6,w=w0*(1-.82*u)*(.55+.45*k)*.5;
-  const cx=PT[c]+sd.x*sn,cy=PT[c+1]+sd.y*sn+cs,cz=PT[c+2]+sd.z*sn,o=i*6;
+  const u=j/(NS-1),s=u*Lend,amp=AMP*T.am*Math.pow(u,.8)*(.35+.65*k),ph=s*.85*T.fr-time*8+T.ph,
+   sn=Math.sin(ph)*amp+T.off*(.5+.5*Math.sin(s*.25-time*3+T.ph))*(1-.4*u),cs=Math.cos(ph*.7+1)*amp*.6,w=w0*(1-.82*u)*(.55+.45*k)*.5;
+  const cx=RS[c]+sd.x*sn,cy=RS[c+1]+sd.y*sn+cs,cz=RS[c+2]+sd.z*sn,o=j*6;
   pos[o]=cx-sd.x*w;pos[o+1]=cy-sd.y*w;pos[o+2]=cz-sd.z*w;pos[o+3]=cx+sd.x*w;pos[o+4]=cy+sd.y*w;pos[o+5]=cz+sd.z*w;
-  aT[i*2]=u;aT[i*2+1]=u}
- T.g.attributes.position.needsUpdate=true;T.g.attributes.aT.needsUpdate=true;T.g.setDrawRange(0,(m-1)*6);
+  aT[j*2]=u;aT[j*2+1]=u}
+ T.g.attributes.position.needsUpdate=true;T.g.attributes.aT.needsUpdate=true;T.g.setDrawRange(0,(NS-1)*6);
  T.m.uniforms.uOp.value=k*T.op;T.mesh.visible=true}
 function step(dt,time){list.forEach(T=>upd(T,dt,time))}
 function colorFor(s){let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return new THREE.Color().setHSL((h%360)/360,1,.6)}
-return{create,step,colorFor}})();
-// شريط اللاعب المحلي + ربطه بالرسم
-const myTrail=DFTrail.create(0x4fd8ff,Rot.position,{op:1});
+function createSet(color,target,o){
+ o=o||{};const c=new THREE.Color(color),far=!!o.far,full=o.full!==false,W=new THREE.Color(1,1,1),mix=q=>c.clone().lerp(W,q);
+ const defs=[{col:c.clone().multiplyScalar(.75),ws:2.1,op:.5,amp:.5,fr:.6,edge:1.1,fade:1.1,wm:.2},
+  {col:c,ws:1,op:1,amp:1,fr:1,edge:1.5,fade:1.3,wm:.75},
+  {col:mix(.85),ws:.34,op:1,amp:.55,fr:1.2,edge:1.2,fade:1,lk:.85,wm:.6}];
+ if(full)defs.push({col:mix(.55),ws:.11,op:.95,amp:1.25,fr:2.6,off:1.15,edge:1.1,fade:.9,wm:.5},{col:mix(.55),ws:.11,op:.95,amp:1.25,fr:3.1,off:-1.15,lk:.9,edge:1.1,fade:.9,wm:.5});
+ const ls=defs.map(d=>create(d.col,target,Object.assign({far},d)));
+ return{layers:ls,get visible(){return ls[0].visible},set visible(v){for(const l of ls)l.visible=v},reset(){for(const l of ls)l.reset()},dispose(){for(const l of ls)l.dispose()}}}
+return{create,createSet,step,colorFor}})();
+// ذيل اللاعب المحلي + ربطه بالرسم
+const myTrail=DFTrail.createSet(0x4fd8ff,Rot.position,{full:true});
 {const _pa=window.placeAt;window.placeAt=function(){myTrail.reset();return _pa.apply(this,arguments)};
  const _r=renderer.render.bind(renderer);let lt=performance.now();
  renderer.render=function(a,b){const n=performance.now(),dt=Math.min((n-lt)/1000,.05);lt=n;try{DFTrail.step(dt,n/1000)}catch(e){}return _r(a,b)}}
+</script>
+<script>
+/* =====================================================================
+   نظام مؤثرات السرعة الخارقة (Anime Super Speed VFX)
+   1) هالة كهربائية  2) صور شبحية  3) موجات صدمية  4) غبار وأوراق وشرارات
+   (الذيل في وحدة DFTrail). كل شيء مرتبط بسرعة الشخصية واتجاهها الحقيقيين.
+   ===================================================================== */
+const DFVfx=(function(){
+const rn=Math.random,PI2=Math.PI*2,rs=()=>rn()*2-1,tA=new V3(),tB=new V3(),tC=new V3(),Z3=new V3(0,0,1);
+function rdir(o){let x,y,z,l;do{x=rs();y=rs();z=rs();l=x*x+y*y+z*z}while(l>1||l<.04);l=Math.sqrt(l);o.set(x/l,y/l,z/l);return o}
+/* ---------- مجمّع جسيمات (إضافي للشرر / عادي للغبار) ---------- */
+const PV='attribute vec3 aC;attribute float aSz;attribute float aA;uniform float uPx;varying vec3 vC;varying float vA;void main(){vC=aC;vA=aA;vec4 mv=modelViewMatrix*vec4(position,1.);gl_PointSize=min(aSz*uPx/max(-mv.z,.6),120.);gl_Position=projectionMatrix*mv;}';
+const PF='varying vec3 vC;varying float vA;void main(){float r=length(gl_PointCoord-.5)*2.;if(r>1.)discard;gl_FragColor=vec4(vC,pow(1.-r,1.4)*vA);}';
+function Pool(N,add){
+ const P=new Float32Array(N*3),C=new Float32Array(N*3),Z=new Float32Array(N),A=new Float32Array(N),Vv=new Float32Array(N*3),Lf=new Float32Array(N),Mx=new Float32Array(N),S0=new Float32Array(N),Gr=new Float32Array(N),Dr=new Float32Array(N);let ix=0;
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(P,3));g.setAttribute('aC',new THREE.BufferAttribute(C,3));g.setAttribute('aSz',new THREE.BufferAttribute(Z,1));g.setAttribute('aA',new THREE.BufferAttribute(A,1));
+ const m=new THREE.ShaderMaterial({uniforms:{uPx:{value:600}},vertexShader:PV,fragmentShader:PF,transparent:true,depthWrite:false,blending:add?THREE.AdditiveBlending:THREE.NormalBlending,fog:false});
+ const pts=new THREE.Points(g,m);pts.frustumCulled=false;pts.renderOrder=3;scene.add(pts);
+ return{
+  emit(x,y,z,vx,vy,vz,life,size,r,gg,b,grav,drag){const i=ix;ix=(ix+1)%N;P[i*3]=x;P[i*3+1]=y;P[i*3+2]=z;Vv[i*3]=vx;Vv[i*3+1]=vy;Vv[i*3+2]=vz;Lf[i]=Mx[i]=life;S0[i]=size;C[i*3]=r;C[i*3+1]=gg;C[i*3+2]=b;Gr[i]=grav;Dr[i]=drag},
+  step(dt,px){m.uniforms.uPx.value=px;
+   for(let i=0;i<N;i++){if(Lf[i]<=0){A[i]=0;continue}Lf[i]-=dt;if(Lf[i]<=0){A[i]=0;continue}const t=Lf[i]/Mx[i],k=Dr[i]?Math.exp(-Dr[i]*dt):1;
+    Vv[i*3]*=k;Vv[i*3+1]=Vv[i*3+1]*k+Gr[i]*dt;Vv[i*3+2]*=k;P[i*3]+=Vv[i*3]*dt;P[i*3+1]+=Vv[i*3+1]*dt;P[i*3+2]+=Vv[i*3+2]*dt;
+    A[i]=Math.min(1,t*2.2);Z[i]=add?S0[i]*(.5+.5*t):S0[i]*(1+(1-t)*1.4)}
+   const q=g.attributes;q.position.needsUpdate=q.aC.needsUpdate=q.aSz.needsUpdate=q.aA.needsUpdate=true}}}
+const sparks=Pool(300,true),debris=Pool(240,false);
+/* ---------- الهالة الكهربائية: أقواس متعرجة ومتفرعة (شرائط تواجه الكاميرا) ---------- */
+const AV='attribute float aS;attribute float aB;varying float vS;varying float vB;varying float vZ;void main(){vS=aS;vB=aB;vec4 mv=modelViewMatrix*vec4(position,1.);vZ=-mv.z;gl_Position=projectionMatrix*mv;}';
+const AF='uniform vec3 uCol;uniform float uOp;varying float vS;varying float vB;varying float vZ;void main(){float e=1.-abs(vS);float a=pow(e,1.1)*vB*uOp*smoothstep(.8,3.,vZ);gl_FragColor=vec4(mix(uCol,vec3(1.),pow(e,2.2)),a);}';
+const MS=170,aP=new Float32Array(MS*12),aSd=new Float32Array(MS*4),aBr=new Float32Array(MS*4),sA=new Float32Array(MS*3),sB=new Float32Array(MS*3),sW=new Float32Array(MS),sBr=new Float32Array(MS);let ns=0;
+const ag=new THREE.BufferGeometry(),aIdx=[];for(let i=0;i<MS;i++){const v=4*i;aIdx.push(v,v+1,v+2,v+1,v+3,v+2);aSd[v]=-1;aSd[v+1]=1;aSd[v+2]=-1;aSd[v+3]=1}
+ag.setAttribute('position',new THREE.BufferAttribute(aP,3));ag.setAttribute('aS',new THREE.BufferAttribute(aSd,1));ag.setAttribute('aB',new THREE.BufferAttribute(aBr,1));ag.setIndex(aIdx);ag.setDrawRange(0,0);
+const am=new THREE.ShaderMaterial({uniforms:{uCol:{value:new THREE.Color(0x6fdcff)},uOp:{value:0}},vertexShader:AV,fragmentShader:AF,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false});
+const arcM=new THREE.Mesh(ag,am);arcM.frustumCulled=false;arcM.renderOrder=4;arcM.visible=false;scene.add(arcM);
+const spr=new THREE.Sprite(new THREE.SpriteMaterial({map:gTex,color:0x55ccff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));spr.visible=false;scene.add(spr);
+function addSeg(ax,ay,az,bx,by,bz,w,b){if(ns>=MS)return;const o=ns*3;sA[o]=ax;sA[o+1]=ay;sA[o+2]=az;sB[o]=bx;sB[o+1]=by;sB[o+2]=bz;sW[ns]=w;sBr[ns]=b;ns++}
+function genArcs(R,p){ns=0;const nA=6+Math.round(6*p);
+ for(let a=0;a<nA;a++){rdir(tA);const n=5+(rn()*4|0),b=.55+rn()*.45,w=(.1+.08*p)*(.7+rn()*.6);let px=0,py=0,pz=0,has=false;
+  for(let k=0;k<=n;k++){tA.x+=rs()*1.1;tA.y+=rs()*1.1;tA.z+=rs()*1.1;tA.normalize();const rad=R*(.7+rn()*.55),x=tA.x*rad,y=tA.y*rad,z=tA.z*rad;
+   if(has){addSeg(px,py,pz,x,y,z,w,b);
+    if(rn()<.3&&k<n){rdir(tB);tB.addScaledVector(tA,1.2).normalize();const L=R*(.35+rn()*.35),mx=x+tB.x*L*.5+rs()*.15*R,my=y+tB.y*L*.5+rs()*.15*R,mz=z+tB.z*L*.5+rs()*.15*R;
+     addSeg(x,y,z,mx,my,mz,w*.6,b*.8);addSeg(mx,my,mz,x+tB.x*L,y+tB.y*L,z+tB.z*L,w*.45,b*.7)}}
+   px=x;py=y;pz=z;has=true}}}
+function arcFrame(c,cp){
+ for(let i=0;i<ns;i++){const o=i*3,ax=c.x+sA[o],ay=c.y+sA[o+1],az=c.z+sA[o+2],bx=c.x+sB[o],by=c.y+sB[o+1],bz=c.z+sB[o+2],
+   dx=bx-ax,dy=by-ay,dz=bz-az,vx=cp.x-(ax+bx)/2,vy=cp.y-(ay+by)/2,vz=cp.z-(az+bz)/2;
+  let sx=dy*vz-dz*vy,sy=dz*vx-dx*vz,sz=dx*vy-dy*vx,l=Math.hypot(sx,sy,sz);if(l<1e-6){sx=1;sy=0;sz=0;l=1}
+  const k=sW[i]*.5/l;sx*=k;sy*=k;sz*=k;const q=i*12;
+  aP[q]=ax-sx;aP[q+1]=ay-sy;aP[q+2]=az-sz;aP[q+3]=ax+sx;aP[q+4]=ay+sy;aP[q+5]=az+sz;aP[q+6]=bx-sx;aP[q+7]=by-sy;aP[q+8]=bz-sz;aP[q+9]=bx+sx;aP[q+10]=by+sy;aP[q+11]=bz+sz;
+  const v=i*4;aBr[v]=aBr[v+1]=aBr[v+2]=aBr[v+3]=sBr[i]}
+ ag.setDrawRange(0,ns*6);ag.attributes.position.needsUpdate=true;ag.attributes.aB.needsUpdate=true}
+/* ---------- الصور الشبحية: لقطة مدمجة من جسم الشخصية (رسمة واحدة لكل شبح) ---------- */
+function mergeChar(root){
+ Rot.updateMatrixWorld(true);const inv=new THREE.Matrix4().copy(Rot.matrixWorld).invert(),mm=new THREE.Matrix4(),v=new V3(),pa=[],ia=[];let off=0;
+ root.traverse(o=>{if(!o.isMesh||o.visible===false||!o.geometry||!o.geometry.attributes.position)return;const mt=o.material;if(mt&&(mt.transparent||mt.blending===THREE.AdditiveBlending))return;
+  mm.multiplyMatrices(inv,o.matrixWorld);const p=o.geometry.attributes.position,ix=o.geometry.index;
+  for(let i=0;i<p.count;i++){v.fromBufferAttribute(p,i).applyMatrix4(mm);pa.push(v.x,v.y,v.z)}
+  if(ix)for(let i=0;i<ix.count;i++)ia.push(ix.getX(i)+off);else for(let i=0;i<p.count;i++)ia.push(off+i);
+  off+=p.count});
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pa,3));g.setIndex(ia);return g}
+const ghosts=[];let chGeo=null;
+chGeo=null;   // الصور الشبحية محذوفة
+if(chGeo)for(let i=0;i<8;i++){const m=new THREE.Mesh(chGeo[0],new THREE.MeshBasicMaterial({color:0x8fe4ff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));m.visible=false;m.frustumCulled=false;m.renderOrder=1;scene.add(m);ghosts.push({m,l:0,s:1})}
+const GL=.32;let gi=0;
+function ghostSpawn(s){if(!ghosts.length)return;const g=ghosts[gi++%ghosts.length];g.l=GL;g.s=s;g.m.geometry=chGeo[chIdx]||chGeo[0];g.m.position.copy(Rot.position);g.m.quaternion.copy(Rot.quaternion);g.m.visible=true}
+/* ---------- الموجات الصدمية: حلقات + قشرة تشوّه تتمدد حول نقطة الانطلاق وتبقى فيها ---------- */
+const rc=document.createElement('canvas');rc.width=rc.height=128;
+{const x=rc.getContext('2d'),g=x.createRadialGradient(64,64,0,64,64,64);[[0,0],[.7,0],[.88,.85],[.96,1],[1,0]].forEach(s=>g.addColorStop(s[0],'rgba(255,255,255,'+s[1]+')'));x.fillStyle=g;x.fillRect(0,0,128,128)}
+const rTex=new THREE.CanvasTexture(rc),rGeo=new THREE.CircleGeometry(1,48),rings=[];
+for(let i=0;i<7;i++){const m=new THREE.Mesh(rGeo,new THREE.MeshBasicMaterial({map:rTex,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide,fog:false}));m.visible=false;m.frustumCulled=false;scene.add(m);rings.push({m,t:1,d:0,R:1,du:1,op:1})}
+function ring(x,y,z,nx,ny,nz,R,du,d,op,col){const r=rings.find(q=>q.t>=1)||rings[0];r.t=0;r.d=d;r.R=R;r.du=du;r.op=op;r.m.position.set(x,y,z);tC.set(nx,ny,nz);r.m.quaternion.setFromUnitVectors(Z3,tC.normalize());r.m.material.color.setHex(col);r.m.visible=false}
+const SV='varying vec3 vN;varying vec3 vV;void main(){vN=normalize(normalMatrix*normal);vec4 mv=modelViewMatrix*vec4(position,1.);vV=normalize(-mv.xyz);gl_Position=projectionMatrix*mv;}';
+const SF='uniform float uOp;uniform vec3 uCol;varying vec3 vN;varying vec3 vV;void main(){float f=pow(1.-abs(dot(normalize(vN),normalize(vV))),2.6);gl_FragColor=vec4(uCol*(.7+f),(f*.9+.04)*uOp);}';
+const sGeo=new THREE.SphereGeometry(1,24,14),shells=[0,1].map(()=>{const m=new THREE.Mesh(sGeo,new THREE.ShaderMaterial({uniforms:{uOp:{value:0},uCol:{value:new THREE.Color(.7,.9,1)}},vertexShader:SV,fragmentShader:SF,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false}));m.visible=false;m.frustumCulled=false;scene.add(m);return{m,t:1,R:1}});
+/* ---------- البيئة: غبار وأوراق ---------- */
+const LEAF=[[.35,.55,.2],[.55,.42,.2],[.7,.5,.18],[.3,.45,.18]];
+function lum(){return Math.max(.3,Math.min(1,.3+.7*(sunL.intensity/1.3)))}
+function dustBurst(x,y,z,R,n,up){const l=lum();
+ for(let i=0;i<n;i++){const a=rn()*PI2,s=Math.sin(a),c=Math.cos(a),v=R*(.35+rn()*.9);
+  if(rn()<.22){const q=LEAF[rn()*4|0];debris.emit(x+c*1.5,y+.3,z+s*1.5,c*v*.8,up*(1+rn()*2),s*v*.8,1.6+rn()*1.2,.4+rn()*.3,q[0]*l,q[1]*l,q[2]*l,-5,.9)}
+  else debris.emit(x+c*1.5,y+.3,z+s*1.5,c*v,up*(.6+rn()*1.6),s*v,.9+rn()*1.1,1.3+rn()*1.8,.74*l,.68*l,.58*l,-1.5,1.6)}}
+const ftN=()=>FEET[chIdx];
+function launch(st){
+ const R=18+26*st,x=pos.x,y=pos.y,z=pos.z;
+ ring(x,y,z,fwd.x,fwd.y,fwd.z,R,.75,0,.95,0xdff6ff);ring(x,y,z,fwd.x,fwd.y,fwd.z,R*.6,.62,.1,.8,0x7fdcff);ring(x,y,z,fwd.x,fwd.y,fwd.z,R*1.3,.95,.18,.5,0x9fc8ff);
+ const sh=shells.find(q=>q.t>=1)||shells[0];sh.t=0;sh.R=R*.9;sh.m.position.set(x,y,z);
+ const gh=wGround(x,z);
+ if(gh!==null){const alt=y-ftN()-gh;if(alt<45){const k=1-alt/90;ring(x,gh+.3,z,0,1,0,R*1.15*k,.9,0,.65,0xeadfc8);dustBurst(x,gh+.3,z,10+14*st,Math.round(30+30*st),3+4*st)}}
+ lastLaunch=performance.now()/1000}
+let lastLaunch=-9;
+/* ---------- حالة ---------- */
+let pk=0,pkPrev=0,ac=0,prevSp=0,genT=0,ghT=0,spAcc=0,duAcc=0,pg=false,pvy=0,bad=false;
+function step(dt,time){
+ if(bad)return;
+ const sp=Math.abs(speed),c=Rot.position,cp=cam.position,ft=ftN();
+ const tg=menuOpen?0:Math.max(Math.min(1,Math.max(0,(sp-70)/170)),surgeK);
+ pk+=(tg-pk)*Math.min(1,(tg>pk?9:2.6)*dt);
+ ac+=(Math.min(1,Math.max(0,(sp-prevSp)/Math.max(dt,.001)/260))-ac)*Math.min(1,10*dt);prevSp=sp;
+ if(!menuOpen&&mode==='ground'&&pkPrev<.12&&pk>=.12&&ac>.25&&time-lastLaunch>1.5)launch(.4);
+ pkPrev=pk;
+ const R=2.1+1.2*pk,onFp=fpT>.5;
+ // 1) الهالة
+ arcM.visible=false;spr.visible=false;   // الهالة الدائرية محذوفة
+ // شرر وجسيمات متطايرة: كثافتها تزيد مع التسارع، وتُقذف عكس اتجاه الحركة
+ if(pk>.05&&!menuOpen){spAcc+=(30+240*pk)*(1+1.2*ac)*dt;let n=0;
+  while(spAcc>=1&&n<14){spAcc--;n++;const w=rn();
+   sparks.emit(c.x-fwd.x*rn()*4+rs()*1.2,c.y-fwd.y*rn()*4+rs()*1.2,c.z-fwd.z*rn()*4+rs()*1.2,-fwd.x*sp*(.18+rn()*.25)+rs()*5,-fwd.y*sp*(.18+rn()*.25)+rs()*5,-fwd.z*sp*(.18+rn()*.25)+rs()*5,.35+rn()*.6,.2+rn()*.35,.5+.5*w,.85+.15*w,1,0,.8)}}
+ // 2) الصور الشبحية
+ ghT-=dt;
+ for(const g of ghosts){if(g.l<=0){g.m.visible=false;continue}g.l-=dt;const t=Math.max(g.l,0)/GL;
+  if(g.l<=0){g.m.visible=false;continue}
+  const d=Math.hypot(g.m.position.x-cp.x,g.m.position.y-cp.y,g.m.position.z-cp.z);
+  g.m.material.opacity=.42*t*t*g.s*Math.min(1,Math.max(0,(d-3)/6));g.m.material.color.setRGB(.3+.5*t,.75+.2*t,1)}
+ // 3) الموجات الصدمية
+ for(const r of rings){if(r.t>=1){r.m.visible=false;continue}if(r.d>0){r.d-=dt;continue}r.t+=dt/r.du;const k=Math.min(r.t,1),e=1-Math.pow(1-k,3);
+  if(k>=1){r.m.visible=false;continue}r.m.visible=true;r.m.scale.setScalar(.5+e*r.R);r.m.material.opacity=r.op*Math.pow(1-k,1.5)}
+ for(const s of shells){if(s.t>=1){s.m.visible=false;continue}s.t+=dt/.6;const k=Math.min(s.t,1),e=1-Math.pow(1-k,3);
+  if(k>=1){s.m.visible=false;continue}s.m.visible=true;s.m.scale.setScalar(1+e*s.R);s.m.material.uniforms.uOp.value=.55*Math.pow(1-k,1.4)}
+ // 4) تفاعل مع الأرض: غبار وأوراق أثناء الحركة القريبة منها + هبوط/إقلاع
+ const gh=wGround(c.x,c.z);
+ if(gh!==null&&!menuOpen){const alt=c.y-ft-gh;
+  if(alt<16&&sp>25){duAcc+=Math.min(sp,300)*.18*(1-alt/16)*dt;let n=0,l=lum();
+   while(duAcc>=1&&n<8){duAcc--;n++;const x=c.x-fwd.x*rn()*5+rs()*1.5,z=c.z-fwd.z*rn()*5+rs()*1.5;
+    if(rn()<.2){const q=LEAF[rn()*4|0];debris.emit(x,gh+.3,z,-fwd.x*sp*.1+rs()*4,3+rn()*6,-fwd.z*sp*.1+rs()*4,1.4+rn()*1,.4+rn()*.3,q[0]*l,q[1]*l,q[2]*l,-5,.9)}
+    else debris.emit(x,gh+.2,z,-fwd.x*sp*.12+rs()*3,2+rn()*5,-fwd.z*sp*.12+rs()*3,.7+rn()*.7,1+rn()*1.2,.74*l,.68*l,.58*l,-1.5,1.5)}}
+  const grounded=mode==='ground'&&!inJump;
+  if(grounded&&!pg&&pvy<-14){const imp=Math.min(1,Math.max(.15,-pvy/90));ring(c.x,gh+.3,c.z,0,1,0,8+16*imp,.7,0,.5*imp+.15,0xeadfc8);dustBurst(c.x,gh+.3,c.z,6+12*imp,Math.round(20+40*imp),2+4*imp)}
+  else if(!grounded&&pg&&vyG>8)dustBurst(c.x,gh+.3,c.z,5,18,3);
+  pg=grounded}
+ else pg=false;
+ pvy=mode==='ground'?vyG:vfy;
+ sparks.step(dt,renderer.domElement.height/(2*Math.tan(cam.fov*Math.PI/360)));
+ debris.step(dt,renderer.domElement.height/(2*Math.tan(cam.fov*Math.PI/360)))}
+return{step,launch,hideGhosts(){ghosts.forEach(g=>{g.l=0;g.m.visible=false})},fail(){bad=true}}})();
+// ربط: الموجة الصدمية الأصلية تُستبدل بموجة تبقى عند نقطة الانطلاق (يبقى اهتزاز الشاشة وتوسّع الزاوية)
+{const _sw=window.shockwave;window.shockwave=function(){_sw.apply(this,arguments);try{SW.forEach(w=>{w.t=1});swC.t=1;DFVfx.launch(surgeT>0?1:.75)}catch(e){}};
+ const _pa=window.placeAt;window.placeAt=function(){try{DFVfx.hideGhosts()}catch(e){}return _pa.apply(this,arguments)};
+ const _r=renderer.render.bind(renderer);let lt=performance.now();
+ renderer.render=function(a,b){const n=performance.now(),dt=Math.min((n-lt)/1000,.05);lt=n;try{DFVfx.step(dt,n/1000)}catch(e){console.error('DFVfx',e);DFVfx.fail()}return _r(a,b)}}
 </script>
 <script>
 /* =====================================================================
@@ -2029,7 +2180,7 @@ const inds={};            // مؤشرات الاتجاه
 function mkRemote(){const g=new THREE.Group();g.rotation.order='YXZ';g.add(P.clone(true),C3.clone(true));scene.add(g);return g}
 function putRemote(uid,v){
  let r=R[uid];
- if(!r){r={g:mkRemote(),tp:new THREE.Vector3(v.x,v.y,v.z),tr:{x:v.a||0,y:v.b||0,z:v.c||0},seen:0,w:0};r.g.position.copy(r.tp);r.g.rotation.set(r.tr.x,r.tr.y,r.tr.z);r.trl=window.DFTrail?DFTrail.create(DFTrail.colorFor(uid),r.g.position,{far:true,op:1}):null;R[uid]=r;if(!inds[uid]){const e=document.createElement('i');e.textContent='▲';e.style.display='none';indLay.appendChild(e);inds[uid]=e}updCount()}
+ if(!r){r={g:mkRemote(),tp:new THREE.Vector3(v.x,v.y,v.z),tr:{x:v.a||0,y:v.b||0,z:v.c||0},seen:0,w:0};r.g.position.copy(r.tp);r.g.rotation.set(r.tr.x,r.tr.y,r.tr.z);r.trl=window.DFTrail?DFTrail.createSet(DFTrail.colorFor(uid),r.g.position,{far:true,full:false}):null;R[uid]=r;if(!inds[uid]){const e=document.createElement('i');e.textContent='▲';e.style.display='none';indLay.appendChild(e);inds[uid]=e}updCount()}
  r.tp.set(v.x,v.y,v.z);r.tr.x=v.a||0;r.tr.y=v.b||0;r.tr.z=v.c||0;r.seen=performance.now();r.w=v.w|0;
  r.g.children[0].visible=(v.k|0)===0;r.g.children[1].visible=(v.k|0)===1;
 }
