@@ -1846,7 +1846,7 @@ const DFTrail=(function(){
 const L0=32,L1=92,STEP=.7,MAXP=140,NS=40,W0=2.2,AMP=.7,JUMP=90,list=new Set();
 const PT=new Float32Array((MAXP+2)*3),LL=new Float32Array(MAXP+2),RS=new Float32Array(NS*3);
 const vs='attribute float aT;attribute float aS;varying float vT;varying float vS;varying float vZ;void main(){vT=aT;vS=aS;vec4 mv=modelViewMatrix*vec4(position,1.);vZ=-mv.z;gl_Position=projectionMatrix*mv;}';
-const fs='uniform vec3 uCol;uniform float uOp,uF,uE,uW;varying float vT;varying float vS;varying float vZ;void main(){float e=1.-abs(vS);float f=1.-vT;float a=pow(e,uE)*pow(f,uF)*uOp*smoothstep(2.5,9.,vZ);vec3 c=mix(uCol,vec3(1.),pow(e,4.)*uW*f);gl_FragColor=vec4(c,a);}';
+const fs='uniform vec3 uCol;uniform float uOp,uF,uE,uW,uN0,uN1;varying float vT;varying float vS;varying float vZ;void main(){float e=1.-abs(vS);float f=1.-vT;float a=pow(e,uE)*pow(f,uF)*uOp*smoothstep(uN0,uN1,vZ);vec3 c=mix(uCol,vec3(1.),pow(e,4.)*uW*f);gl_FragColor=vec4(c,a);}';
 function create(color,target,o){
  o=o||{};const maxV=NS*2,pos=new Float32Array(maxV*3),aT=new Float32Array(maxV),aS=new Float32Array(maxV),idx=[];
  for(let i=0;i<NS-1;i++){const a=2*i;idx.push(a,a+1,a+2,a+1,a+3,a+2)}
@@ -1854,7 +1854,7 @@ function create(color,target,o){
  const g=new THREE.BufferGeometry();
  g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setAttribute('aT',new THREE.BufferAttribute(aT,1));g.setAttribute('aS',new THREE.BufferAttribute(aS,1));
  g.setIndex(idx);g.setDrawRange(0,0);
- const m=new THREE.ShaderMaterial({uniforms:{uCol:{value:new THREE.Color(color)},uOp:{value:0},uF:{value:o.fade||1.3},uE:{value:o.edge||1.5},uW:{value:o.wm==null?.75:o.wm}},vertexShader:vs,fragmentShader:fs,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false});
+ const m=new THREE.ShaderMaterial({uniforms:{uCol:{value:new THREE.Color(color)},uOp:{value:0},uF:{value:o.fade||1.3},uE:{value:o.edge||1.5},uW:{value:o.wm==null?.75:o.wm},uN0:{value:1.2},uN1:{value:4.5}},vertexShader:vs,fragmentShader:fs,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,side:THREE.DoubleSide,fog:false});
  const mesh=new THREE.Mesh(g,m);mesh.frustumCulled=false;mesh.renderOrder=2;mesh.visible=false;scene.add(mesh);
  const T={target,mesh,g,m,pos,aT,visible:true,far:!!o.far,op:o.op||1,ws:o.ws||1,am:o.amp==null?1:o.amp,fr:o.fr||1,off:o.off||0,lk:o.lk||1,len:L0*(o.lk||1),
   hist:new Float32Array(MAXP*3),n:0,prev:new THREE.Vector3(),has:false,spd:0,ph:Math.random()*6.283,
@@ -1890,12 +1890,12 @@ function upd(T,dt,time){
  for(let j=0;j<NS;j++){
   const a=Math.max(j-1,0)*3,b=Math.min(j+1,NS-1)*3,c=j*3;
   tv.set(RS[a]-RS[b],RS[a+1]-RS[b+1],RS[a+2]-RS[b+2]);if(tv.lengthSq()<1e-8)tv.set(0,0,1);tv.normalize();
-  vv.set(cp.x-RS[c],cp.y-RS[c+1],cp.z-RS[c+2]);vv.multiplyScalar(1/Math.max(vv.length(),1e-3));
+  vv.set(cp.x-RS[c],cp.y-RS[c+1],cp.z-RS[c+2]);const dj=Math.max(vv.length(),1e-3);vv.multiplyScalar(1/dj);
   sd.crossVectors(tv,vv);const l=sd.length();
   if(l<.25){sb.crossVectors(tv,Math.abs(tv.y)>.95?EX:UP).normalize();if(sb.dot(sd)<0)sb.negate();sd.addScaledVector(sb,(.25-l)*4)}
   if(sd.lengthSq()<1e-8)sd.set(1,0,0);sd.normalize();
   const u=j/(NS-1),s=u*Lend,amp=AMP*T.am*Math.pow(u,.8)*(.35+.65*k),ph=s*.85*T.fr-time*8+T.ph,
-   sn=Math.sin(ph)*amp+T.off*(.5+.5*Math.sin(s*.25-time*3+T.ph))*(1-.4*u),cs=Math.cos(ph*.7+1)*amp*.6,w=w0*(1-.82*u)*(.55+.45*k)*.5;
+   sn=Math.sin(ph)*amp+T.off*(.5+.5*Math.sin(s*.25-time*3+T.ph))*(1-.4*u),cs=Math.cos(ph*.7+1)*amp*.6,w=Math.min(w0*(1-.82*u)*(.55+.45*k)*.5,dj*.14);
   const cx=RS[c]+sd.x*sn,cy=RS[c+1]+sd.y*sn+cs,cz=RS[c+2]+sd.z*sn,o=j*6;
   pos[o]=cx-sd.x*w;pos[o+1]=cy-sd.y*w;pos[o+2]=cz-sd.z*w;pos[o+3]=cx+sd.x*w;pos[o+4]=cy+sd.y*w;pos[o+5]=cz+sd.z*w;
   aT[j*2]=u;aT[j*2+1]=u}
@@ -1910,10 +1910,13 @@ function createSet(color,target,o){
   {col:mix(.85),ws:.34,op:1,amp:.55,fr:1.2,edge:1.2,fade:1,lk:.85,wm:.6}];
  if(full)defs.push({col:mix(.55),ws:.11,op:.95,amp:1.25,fr:2.6,off:1.15,edge:1.1,fade:.9,wm:.5},{col:mix(.55),ws:.11,op:.95,amp:1.25,fr:3.1,off:-1.15,lk:.9,edge:1.1,fade:.9,wm:.5});
  const ls=defs.map(d=>create(d.col,target,Object.assign({far},d)));
- return{layers:ls,get visible(){return ls[0].visible},set visible(v){for(const l of ls)l.visible=v},reset(){for(const l of ls)l.reset()},dispose(){for(const l of ls)l.dispose()}}}
+ const cf=[q=>q.clone().multiplyScalar(.75),q=>q.clone(),q=>q.clone().lerp(W,.85),q=>q.clone().lerp(W,.55),q=>q.clone().lerp(W,.55)];
+ return{layers:ls,paint(col){const q=new THREE.Color(col);ls.forEach((l,i)=>l.m.uniforms.uCol.value.copy(cf[i](q)))},get visible(){return ls[0].visible},set visible(v){for(const l of ls)l.visible=v},reset(){for(const l of ls)l.reset()},dispose(){for(const l of ls)l.dispose()}}}
 return{create,createSet,step,colorFor}})();
 // ذيل اللاعب المحلي + ربطه بالرسم
-const myTrail=DFTrail.createSet(0x4fd8ff,Rot.position,{full:true});
+let curSkin=0;   // رقم المظهر الحالي (يُرسل للاعبين الآخرين)
+const myTrail=DFTrail.createSet(SK[0].q,Rot.position,{full:true});
+{const _as=window.applySkin;window.applySkin=function(i){const r=_as.apply(this,arguments);curSkin=i;myTrail.paint(SK[i].q);return r}}
 {const _pa=window.placeAt;window.placeAt=function(){myTrail.reset();return _pa.apply(this,arguments)};
  const _r=renderer.render.bind(renderer);let lt=performance.now();
  renderer.render=function(a,b){const n=performance.now(),dt=Math.min((n-lt)/1000,.05);lt=n;try{DFTrail.step(dt,n/1000)}catch(e){}return _r(a,b)}}
@@ -2177,12 +2180,20 @@ const R={};               // نسخ اللاعبين الآخرين: uid -> {g,t
 const TB={};              // جدول بيانات اللاعبين الآخرين: uid -> {w,j,x,y,z,b}
 const inds={};            // مؤشرات الاتجاه
 
-function mkRemote(){const g=new THREE.Group();g.rotation.order='YXZ';g.add(P.clone(true),C3.clone(true));scene.add(g);return g}
+/* كل لاعب بعيد يملك نسخاً مستقلة من الخامات (clone كان يشارك خامات لاعبك فيتغير لون الجميع معك) */
+const SKSRC=new Map(TT.map(e=>[e[0],e[1]])),SKL=[accM,thM,purpM,ventM,visM,beamM];
+function cloneMats(root,mp,list){root.traverse(o=>{if(!o.isMesh||!o.material||Array.isArray(o.material))return;const s=o.material;let n=mp.get(s);
+ if(!n){n=s.clone();if(SKSRC.has(s)){n.userData={c2:new THREE.Color()};n.onBeforeCompile=function(sh,rd2){s.onBeforeCompile(sh,rd2);sh.uniforms.uC2={value:n.userData.c2}};list.push({m:n,f:SKSRC.get(s),t:1})}else if(SKL.includes(s))list.push({m:n,f:1,t:2});mp.set(s,n)}
+ o.material=n})}
+function mkRemote(){const g=new THREE.Group();g.rotation.order='YXZ';const a=P.clone(true),b=C3.clone(true),mp=new Map(),ml=[];cloneMats(a,mp,ml);cloneMats(b,mp,ml);g.add(a,b);g.userData.ml=ml;scene.add(g);return g}
+function paintRemote(r,i){const k=SK[i]||SK[0],Pc=new THREE.Color(k.p),Q=new THREE.Color(k.q),Lc=Q.clone().lerp(new THREE.Color(1,1,1),.25);
+ r.g.userData.ml.forEach(e=>{if(e.t===1){e.m.color.copy(Pc).multiplyScalar(e.f);e.m.userData.c2.copy(Q).multiplyScalar(e.f)}else e.m.color.copy(Lc)});
+ r.sk=i;if(r.trl)r.trl.paint(k.q)}
 function putRemote(uid,v){
  let r=R[uid];
- if(!r){r={g:mkRemote(),tp:new THREE.Vector3(v.x,v.y,v.z),tr:{x:v.a||0,y:v.b||0,z:v.c||0},seen:0,w:0};r.g.position.copy(r.tp);r.g.rotation.set(r.tr.x,r.tr.y,r.tr.z);r.trl=window.DFTrail?DFTrail.createSet(DFTrail.colorFor(uid),r.g.position,{far:true,full:false}):null;R[uid]=r;if(!inds[uid]){const e=document.createElement('i');e.textContent='▲';e.style.display='none';indLay.appendChild(e);inds[uid]=e}updCount()}
+ if(!r){r={g:mkRemote(),tp:new THREE.Vector3(v.x,v.y,v.z),tr:{x:v.a||0,y:v.b||0,z:v.c||0},seen:0,w:0};r.g.position.copy(r.tp);r.g.rotation.set(r.tr.x,r.tr.y,r.tr.z);r.trl=typeof DFTrail!=='undefined'?DFTrail.createSet(SK[0].q,r.g.position,{far:true,full:false}):null;R[uid]=r;if(!inds[uid]){const e=document.createElement('i');e.textContent='▲';e.style.display='none';indLay.appendChild(e);inds[uid]=e}updCount()}
  r.tp.set(v.x,v.y,v.z);r.tr.x=v.a||0;r.tr.y=v.b||0;r.tr.z=v.c||0;r.seen=performance.now();r.w=v.w|0;
- r.g.children[0].visible=(v.k|0)===0;r.g.children[1].visible=(v.k|0)===1;
+ {const kk=v.k|0,ch=kk%10,sk=Math.floor(kk/10)%SK.length;r.g.children[0].visible=ch===0;r.g.children[1].visible=ch===1;if(r.sk!==sk)paintRemote(r,sk)}
 }
 function dropRemote(uid){const r=R[uid];if(r){scene.remove(r.g);if(r.trl)r.trl.dispose();delete R[uid]}delete TB[uid];if(inds[uid]){inds[uid].remove();delete inds[uid]}QMAPI.drop(uid);updCount();listUI()}
 function updCount(){const n=Object.keys(R).length;oCur.textContent=live?('· '+(n+1)+' 👥'):''}
@@ -2245,10 +2256,10 @@ renderer.render=function(a,b){try{const n=performance.now(),dt=Math.min((n-lastT
 const rd=(v,n)=>Math.round(v*n)/n;
 function sendState(force){
  if(!live)return;const L=live,p=Rot.position,q=Rot.rotation,now=performance.now();
- const s={x:rd(p.x,100),y:rd(p.y,100),z:rd(p.z,100),a:rd(q.x,1000),b:rd(q.y,1000),c:rd(q.z,1000),k:chIdx,w:myIdx(),j:L.j,h:Math.floor(now/HEART_MS)%1000};
+ const s={x:rd(p.x,100),y:rd(p.y,100),z:rd(p.z,100),a:rd(q.x,1000),b:rd(q.y,1000),c:rd(q.z,1000),k:chIdx+(L.noSkin?0:10*curSkin),w:myIdx(),j:L.j,h:Math.floor(now/HEART_MS)%1000};
  const o=L.last,moved=!o||Math.abs(s.x-o.x)+Math.abs(s.y-o.y)+Math.abs(s.z-o.z)>POS_EPS||Math.abs(s.a-o.a)+Math.abs(s.b-o.b)+Math.abs(s.c-o.c)>ROT_EPS||s.k!==o.k||s.w!==o.w;
  if(!force&&!moved&&!(now-L.lastSend>HEART_MS))return;
- L.last=s;L.lastSend=now;L.me.set(s).catch(()=>{});
+ L.last=s;L.lastSend=now;L.me.set(s).catch(()=>{if(curSkin&&!L.noSkin){L.noSkin=true;L.last=null;say('تعذّرت مزامنة لون الشخصية: قواعد Firebase ترفض قيمة k أكبر من 1');sendState(true)}});
 }
 
 /* ---- قائمة اللاعبين في صفحة الأونلاين (للانتقال إليهم) ---- */
