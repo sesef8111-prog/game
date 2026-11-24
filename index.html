@@ -85,6 +85,16 @@ body.ed .ed-el.ed-sel{outline-color:#ffd23f}
 body.m #onInd,body.ed #onInd{display:none}
 .orow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}.orow button{padding:6px 10px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.12);white-space:nowrap}
 body.m #qmBtn,body.m #qmList{display:none!important}
+/* tactical abilities */
+.ab{position:fixed;right:calc(env(safe-area-inset-right,0px) + 16px);width:58px;height:58px;padding:0;border-radius:50%;background:var(--glass);border:1px solid var(--line);font-size:10px;font-weight:600;line-height:1.1;overflow:hidden;opacity:.82;touch-action:none;z-index:3}
+.ab i{display:block;font-style:normal;font-size:21px;line-height:1.15}
+.ab::after{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(rgba(0,0,0,.6) calc(var(--p,0)*1%),transparent 0);pointer-events:none}
+.ab b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:18px;z-index:1;text-shadow:0 1px 5px #000}
+#abM{border-color:rgba(255,190,90,.8)}#abE{border-color:rgba(130,225,255,.85)}#abG{border-color:rgba(190,150,255,.85)}
+.ab.on{background:rgba(159,232,255,.38)}
+.ab.dis{filter:grayscale(1) brightness(.7);border-color:#f66}
+#abFx{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:3;background:repeating-linear-gradient(0deg,rgba(120,225,255,0) 0 3px,rgba(120,225,255,.22) 3px 4px),radial-gradient(circle at 50% 50%,rgba(120,225,255,0) 45%,rgba(120,225,255,.35));mix-blend-mode:screen}
+body.m .ab,body.m #abFx{display:none}
 </style>
 <script>
 window.DF_WORLDS=[{n:'جزيرة المدينة',f:'island-city'},{n:'قصر الأبد',f:'eternal-palace.js'},{n:'عالم بلا اسم',f:'dream-world.js'},{n:'الشق القرمزي',f:'crimson-rift.js'},{n:'بحر السكينة',f:'serene-sea.js'},{n:'حيتان المجرّة',f:'galaxy-whales.js'}];
@@ -1432,6 +1442,7 @@ gl_FragColor=vec4(c,1.);}`}));
 <label class="row"><span>حجم كل الأزرار</span><input type="range" id="sGlb" min=".6" max="1.5" step=".05"><b id="vGlb"></b></label>
 <div class="grp">🎮 اللعب</div>
 <button class="tg" id="tShake"></button>
+<button class="tg" id="tDummy"></button>
 <div class="grp">🖥️ الأداء</div>
 <div class="cards"><button class="qb" data-q="0">جودة منخفضة</button><button class="qb" data-q="1">متوسطة</button><button class="qb" data-q="2">عالية</button></div>
 <button class="big2" id="bReset">↺ إعادة ضبط كل الإعدادات</button>
@@ -2179,6 +2190,7 @@ let live=null;            // الجلسة الحالية
 const R={};               // نسخ اللاعبين الآخرين: uid -> {g,tp,tr,seen,w}
 const TB={};              // جدول بيانات اللاعبين الآخرين: uid -> {w,j,x,y,z,b}
 const inds={};            // مؤشرات الاتجاه
+window.DFNET={live:()=>live,R:R,idx:()=>myIdx()};   // واجهة للقدرات التكتيكية
 
 /* كل لاعب بعيد يملك نسخاً مستقلة من الخامات (clone كان يشارك خامات لاعبك فيتغير لون الجميع معك) */
 const SKSRC=new Map(TT.map(e=>[e[0],e[1]])),SKL=[accM,thM,purpM,ventM,visM,beamM];
@@ -2339,6 +2351,238 @@ function teardown(){
 oGo.addEventListener('click',()=>{if(live){teardown();oGo.textContent='اتصال';setSt('غير متصل')}else connect()});
 setSt('غير متصل');
 }catch(err){console.error('online disabled:',err)}
+})();
+</script>
+<script>
+/* =====================================================================
+   Deep Flight - القدرات التكتيكية: الألغام المغناطيسية · نبضة EMP · الشبح الوهمي
+   وحدة مستقلة تُحمَّل في الآخر: لا تغيّر نظام الحركة، ولو تعطّلت تبقى اللعبة تعمل.
+   - لا يوجد خادم لعبة: كل لاعب يطبّق التأثير على نفسه فقط (سلطة الضحية)، والأحداث تُنقل عبر Firebase (rooms/{room}/abil).
+   - الحدود: نصف القطر 15م · اللغم 12ث/12ث · EMP تعطيل 3ث/تهدئة 20ث · الشبح 12ث/20ث.
+   ===================================================================== */
+(function(){
+try{
+const V=THREE.Vector3,AD=THREE.AdditiveBlending;
+const RAD=15,ARM=.6,PULL=1.4,EMPT=.35,EMPD=3,MLIFE=12,GLIFE=12,GSIDE=6,CD={mine:12,emp:20,gh:20};
+let bad=false,t=0,dis=0,lastSay=-9;
+const cd={mine:0,emp:0,gh:0};
+const prev=new V().copy(pos),kb=new V(),vA=new V(),vB=new V(),vC=new V();
+const q2=v=>Math.round(v*100)/100,q3=v=>Math.round(v*1000)/1000;
+const dist=(m,p)=>Math.hypot(m.x-p.x,m.y-p.y,m.z-p.z);
+const say2=s=>{if(t-lastSay>1.2){lastSay=t;say(s)}};
+const vib=p=>{try{navigator.vibrate&&navigator.vibrate(p)}catch(_){}};
+
+/* ---------- الأزرار ---------- */
+const BT=[['mine','abM','💣','لغم'],['emp','abE','⚡','EMP'],['gh','abG','👤','شبح']];
+const fxEl=document.createElement('div');fxEl.id='abFx';document.body.appendChild(fxEl);
+BT.forEach(([k,id,ic,nm],i)=>{const b=document.createElement('button');b.id=id;b.className='ab';b.innerHTML='<i>'+ic+'</i>'+nm+'<b></b>';
+ b.style.bottom='calc(env(safe-area-inset-bottom,0px) + '+(24+i*68)+'px)';document.body.appendChild(b);
+ b.addEventListener('pointerdown',e=>{e.preventDefault();use(k)})});
+EL.push(['abM','لغم مغناطيسي'],['abE','نبضة EMP'],['abG','الشبح الوهمي']);applyLay();
+const bt={};BT.forEach(([k,id])=>{const e=$(id);bt[k]={e,n:e.querySelector('b'),p:-1,s:'',on:null,dis:null}});
+
+/* ---------- جسيمات خفيفة (مجمّع واحد) ---------- */
+const FN=240,fp=new Float32Array(FN*3),fv=new Float32Array(FN*3),fc=new Float32Array(FN*3),fb=new Float32Array(FN*3),fl=new Float32Array(FN),fL=new Float32Array(FN).fill(1);
+const fg=new THREE.BufferGeometry();fg.setAttribute('position',new THREE.BufferAttribute(fp,3));fg.setAttribute('color',new THREE.BufferAttribute(fc,3));
+const fpts=new THREE.Points(fg,new THREE.PointsMaterial({size:1.5,map:gTex,vertexColors:true,transparent:true,depthWrite:false,blending:AD,fog:false}));fpts.frustumCulled=false;scene.add(fpts);
+let fi=0,fAlive=0;
+function fx(x,y,z,vx,vy,vz,life,r,g,b){const i=fi++%FN;fp[i*3]=x;fp[i*3+1]=y;fp[i*3+2]=z;fv[i*3]=vx;fv[i*3+1]=vy;fv[i*3+2]=vz;fl[i]=fL[i]=life;fb[i*3]=r;fb[i*3+1]=g;fb[i*3+2]=b}
+function rdir(o){let x,y,z,l;do{x=Math.random()*2-1;y=Math.random()*2-1;z=Math.random()*2-1;l=x*x+y*y+z*z}while(l>1||l<.05);l=Math.sqrt(l);return o.set(x/l,y/l,z/l)}
+function burst(x,y,z,n,sp,life,c,up){for(let i=0;i<n;i++){rdir(vC);fx(x,y,z,vC.x*sp*(.4+Math.random()*.6),vC.y*sp*(.4+Math.random()*.6)+(up||0),vC.z*sp*(.4+Math.random()*.6),life*(.6+Math.random()*.4),c.r,c.g,c.b)}}
+function fxStep(dt){fAlive=0;const dr=Math.exp(-1.6*dt);
+ for(let i=0;i<FN;i++){if(fl[i]>0){fl[i]-=dt;fAlive++;const k=Math.max(fl[i],0)/fL[i];fp[i*3]+=fv[i*3]*dt;fp[i*3+1]+=fv[i*3+1]*dt;fp[i*3+2]+=fv[i*3+2]*dt;fv[i*3]*=dr;fv[i*3+1]*=dr;fv[i*3+2]*=dr;fc[i*3]=fb[i*3]*k;fc[i*3+1]=fb[i*3+1]*k;fc[i*3+2]=fb[i*3+2]*k}
+  else if(fc[i*3]+fc[i*3+1]+fc[i*3+2]>0){fc[i*3]=fc[i*3+1]=fc[i*3+2]=0;fAlive++}}
+ if(fAlive){fg.attributes.position.needsUpdate=true;fg.attributes.color.needsUpdate=true}}
+
+/* ---------- الألغام المغناطيسية ---------- */
+const gCore=new THREE.SphereGeometry(.55,10,8),gShell=new THREE.IcosahedronGeometry(RAD,1),gRing=new THREE.RingGeometry(RAD-.2,RAD,64);gRing.rotateX(-Math.PI/2);
+const CY=new THREE.Color(0x66e0ff),AM=new THREE.Color(0xffb347),RD=new THREE.Color(0xff5a4a);
+const bm=(o)=>new THREE.MeshBasicMaterial(Object.assign({transparent:true,depthWrite:false,blending:AD,fog:false},o));
+function mkMine(){const g=new THREE.Group(),core=new THREE.Mesh(gCore,bm({opacity:.95})),shell=new THREE.Mesh(gShell,bm({wireframe:true,opacity:.08})),ring=new THREE.Mesh(gRing,bm({opacity:.3,side:THREE.DoubleSide})),
+  halo=new THREE.Sprite(new THREE.SpriteMaterial({map:gTex,blending:AD,transparent:true,depthWrite:false,fog:false,opacity:.5}));halo.scale.set(5,5,1);g.add(core,shell,ring,halo);g.visible=false;scene.add(g);return{g,core,shell,ring,halo}}
+const mpool=[],M=[];
+function relMine(i){const m=M[i];m.o.g.visible=false;mpool.push(m.o);M.splice(i,1)}
+function clearOwner(u){for(let i=M.length-1;i>=0;i--)if(M[i].owner===u)relMine(i)}
+function spawnMine(owner,x,y,z,own){if(M.length>=14)relMine(0);const o=mpool.pop()||mkMine();o.g.position.set(x,y,z);o.g.visible=true;o.core.visible=true;
+ M.push({o,owner,own,x,y,z,age:0,state:0,pt:0,e:0});burst(x,y,z,14,10,.7,own?CY:AM,0)}
+function pullMe(m,dt){const d=dist(m,pos);if(d>=RAD||d<1.2)return;
+ vA.set(m.x-pos.x,m.y-pos.y,m.z-pos.z).multiplyScalar((14+16*(1-d/RAD))*dt/d);pos.add(vA);
+ if(!(surgeT>0)&&!boost)speed*=Math.exp(-.9*dt);   // الاندفاع/التسارع يتجاوزان الجذب = يمكن الهروب
+ shk=Math.max(shk,.16);try{wPush(pos,.55,pos.y-1.6)}catch(_){}}
+function hitMe(m){vA.set(pos.x-m.x,pos.y-m.y,pos.z-m.z);if(vA.lengthSq()<.01)vA.set(0,1,0);kb.copy(vA.normalize()).multiplyScalar(32);flashK=1;shk=Math.max(shk,.9);vib([40,30,70]);say2('💥 أصابك لغم مغناطيسي');
+ try{window.onDFDamage&&window.onDFDamage(35,'mine')}catch(_){}}
+function explode(m){m.state=2;m.e=0;burst(m.x,m.y,m.z,70,46,.9,AM,0);burst(m.x,m.y,m.z,20,30,.7,new THREE.Color(1,1,1),0);
+ if(m.owner!=='me'&&!menuOpen&&dist(m,pos)<RAD)hitMe(m);
+ if(dm.on&&dist(m,dm.g.position)<RAD){vA.set(dm.g.position.x-m.x,dm.g.position.y-m.y,dm.g.position.z-m.z);if(vA.lengthSq()<.01)vA.set(0,1,0);dm.vel.copy(vA.normalize()).multiplyScalar(30);say2('🎯 أصبت الهدف')}}
+function stepMines(dt){
+ for(let i=M.length-1;i>=0;i--){const m=M[i],o=m.o;m.age+=dt;
+  if(m.state===0){
+   if(m.age>=MLIFE){m.state=3;m.e=0}
+   else if(m.age>ARM){let hit=false;
+    if(m.owner!=='me'&&!menuOpen&&dist(m,pos)<RAD)hit=true;
+    const N=window.DFNET;if(!hit&&N&&N.live())for(const u in N.R){if(u!==m.owner&&N.R[u].g.visible&&dist(m,N.R[u].g.position)<RAD){hit=true;break}}
+    if(!hit&&dm.on&&dist(m,dm.g.position)<RAD)hit=true;
+    if(hit){m.state=1;m.pt=0;vib(25)}}}
+  if(m.state===1){m.pt+=dt;
+   if(m.owner!=='me'&&!menuOpen)pullMe(m,dt);
+   if(dm.on&&dist(m,dm.g.position)<RAD){vB.set(m.x-dm.g.position.x,m.y-dm.g.position.y,m.z-dm.g.position.z);const d=vB.length();if(d>1.2)dm.c.addScaledVector(vB,(14+16*(1-d/RAD))*dt/d)}
+   if(m.pt>=PULL)explode(m)}
+  else if(m.state===2){m.e+=dt;if(m.e>=.55){relMine(i);continue}}
+  else if(m.state===3){m.e+=dt;if(m.e>=.4){relMine(i);continue}}
+  // المظهر
+  const sp=Math.min(1,m.age/.35),col=m.state===1||m.state===2?RD:(m.own?CY:AM);
+  o.core.material.color.copy(col);o.shell.material.color.copy(col);o.ring.material.color.copy(col);o.halo.material.color.copy(col);
+  let f=1;if(m.state===3)f=1-m.e/.4;
+  if(m.state===2){const k=m.e/.55;o.core.visible=false;o.shell.scale.setScalar(1+k*.25);o.shell.material.opacity=.35*(1-k);o.ring.material.opacity=.6*(1-k);o.halo.scale.setScalar(8+k*60);o.halo.material.opacity=.9*(1-k)}
+  else{o.core.scale.setScalar(1+.15*Math.sin(t*6+m.x));const c=m.state===1?1-.15*(m.pt/PULL):1;o.shell.scale.setScalar(sp*c);o.ring.scale.setScalar(sp*c);
+   o.shell.material.opacity=(m.state===1?.16:.07)*f;o.ring.material.opacity=((m.state===1?.5:.26)+.08*Math.sin(t*3))*f;o.core.material.opacity=.95*f;o.halo.scale.setScalar(m.state===1?6+2*Math.sin(t*30):5);o.halo.material.opacity=.5*f}}
+}
+
+/* ---------- نبضة EMP ---------- */
+const gEmp=new THREE.SphereGeometry(1,24,14),epool=[],EW=[];
+function mkEmp(){const m=new THREE.Mesh(gEmp,bm({color:0x7fe3ff,opacity:.3,side:THREE.DoubleSide})),h=new THREE.Sprite(new THREE.SpriteMaterial({map:gTex,color:0xcff6ff,blending:AD,transparent:true,depthWrite:false,fog:false,opacity:.9}));m.add(h);m.visible=false;scene.add(m);return{m,h}}
+const rs={};   // لاعبون بعيدون أصابتهم النبضة (مؤثر بصري فقط)
+function empGo(owner,x,y,z){const o=epool.pop()||mkEmp();o.m.position.set(x,y,z);o.m.scale.setScalar(.01);o.m.visible=true;EW.push({o,owner,x,y,z,t:0,hit:{}});
+ const c=new THREE.Color(0x9fe8ff);burst(x,y,z,50,RAD/EMPT,.38,c,0);burst(x,y,z,12,6,.6,new THREE.Color(1,1,1),0)}
+function empHitMe(){if(dis>0)return;dis=EMPD;surgeT=0;surgeFx=0;boost=false;vib([60,40,60]);shk=Math.max(shk,.6);say('⚡ نبضة EMP: تعطّلت قدراتك '+EMPD+' ث')}
+function empHitRemote(u){if(!rs[u]){const s=new THREE.Sprite(new THREE.SpriteMaterial({map:gTex,color:0x9fe8ff,blending:AD,transparent:true,depthWrite:false,fog:false,opacity:.5}));scene.add(s);rs[u]={t:0,s}}rs[u].t=EMPD}
+function stepEmp(dt){
+ for(let i=EW.length-1;i>=0;i--){const w=EW[i],o=w.o;w.t+=dt;const r=RAD*Math.min(w.t/EMPT,1);
+  if(w.t<=EMPT+dt){
+   if(w.owner!=='me'&&!w.hit.me&&!menuOpen){const d=dist(w,pos);if(d<=RAD&&d<=r){w.hit.me=1;empHitMe()}}
+   const N=window.DFNET;if(N&&N.live())for(const u in N.R){const rr=N.R[u];if(u===w.owner||w.hit[u]||!rr.g.visible)continue;const d=dist(w,rr.g.position);if(d<=RAD&&d<=r){w.hit[u]=1;empHitRemote(u)}}
+   if(dm.on&&!w.hit.dm){const d=dist(w,dm.g.position);if(d<=RAD&&d<=r){w.hit.dm=1;dm.stun=EMPD;say2('⚡ تعطّل الهدف')}}}
+  const k=w.t/.7;if(k>=1){o.m.visible=false;epool.push(o);EW.splice(i,1);continue}
+  o.m.scale.setScalar(Math.max(r,.01));o.m.material.opacity=.32*(1-k);o.h.scale.set(1.4/Math.max(r,.01)*16,1.4/Math.max(r,.01)*16,1);o.h.material.opacity=.9*Math.max(0,1-w.t/.25)}
+}
+function stepStatus(dt){const N=window.DFNET;
+ for(const u in rs){const e=rs[u],r=N&&N.R[u];if(!r||!r.g.visible||(e.t-=dt)<=0){scene.remove(e.s);e.s.material.dispose();delete rs[u];continue}
+  e.s.position.copy(r.g.position);e.s.scale.setScalar(5+Math.sin(t*30));e.s.material.opacity=.5*(.6+.4*Math.sin(t*45))*Math.min(1,e.t*2)}}
+
+/* ---------- الشبح الوهمي ---------- */
+let G=null;const RG={};
+const tintOf=i=>new THREE.Color(SK[i||0].q).lerp(new THREE.Color(1,1,1),.3);
+function mkGhost(src,col,x,y,z){
+ const root=src.clone(true),pairs=[];
+ (function w(a,b){for(let i=0;i<a.children.length;i++){pairs.push([a.children[i],b.children[i]]);w(a.children[i],b.children[i])}})(src,root);
+ const holo=new THREE.MeshLambertMaterial({color:col,emissive:col,emissiveIntensity:.6,transparent:true,opacity:0,depthWrite:false});
+ root.traverse(o=>{if(o.isMesh)o.material=holo});
+ root.position.set(x,y,z);scene.add(root);
+ const halo=new THREE.Sprite(new THREE.SpriteMaterial({map:gTex,color:col,blending:AD,transparent:true,depthWrite:false,fog:false,opacity:0}));halo.scale.set(9,9,1);root.add(halo);
+ let trl=null;try{trl=DFTrail.createSet(col,root.position,{far:true,full:false});trl.paint(col)}catch(_){trl=null}
+ return{root,pairs,holo,halo,trl,col,t:0,tp:new V(x,y,z),sT:0,own:false}}
+function bodyBurst(g,n){const p=g.root.position;for(let i=0;i<n;i++)fx(p.x+(Math.random()-.5)*1.6,p.y+(Math.random()-.5)*1.6,p.z+(Math.random()-.5)*3,(Math.random()-.5)*5,Math.random()*5+1,(Math.random()-.5)*5,.8+Math.random()*.7,g.col.r,g.col.g,g.col.b)}
+function killGhost(g,withFx){if(!g)return;if(withFx)bodyBurst(g,45);scene.remove(g.root);g.holo.dispose();g.halo.material.dispose();if(g.trl)try{g.trl.dispose()}catch(_){}
+ if(g===G){G=null;if(NET.at)NET.me.child('gh').remove().catch(()=>{})}}
+function ghostFx(g,dt){g.t+=dt;const k=Math.min(1,g.t/.45)*Math.max(0,Math.min(1,(GLIFE-g.t)/.6));
+ g.holo.opacity=.5*k*(.86+.14*Math.sin(t*20));g.halo.material.opacity=.35*k;
+ if(g.t>GLIFE-.6)bodyBurst(g,2);if(g.trl)g.trl.visible=k>.05;
+ const P=g.pairs;for(let i=0;i<P.length;i++){const a=P[i][0],b=P[i][1];b.visible=a.visible;b.rotation.copy(a.rotation);b.scale.copy(a.scale)}}
+// الشبح: يطابق الحركة الأمامية والرأسية ويعكس الجانبية، بإحداثيات الشخصية المحلية (لا محاور العالم)
+function basis(yw,pt,F,R,U){const sy=Math.sin(yw),cy=Math.cos(yw),sp=Math.sin(pt),cp=Math.cos(pt);F.set(sy*cp,sp,cy*cp);R.set(-cy,0,sy);U.set(-sy*sp,cp,-cy*sp)}
+const bF=new V(),bR=new V(),bU=new V(),gF=new V(),gR=new V(),gU=new V();
+function stepGhosts(dt){
+ if(G){
+  vA.copy(pos).sub(prev);
+  if(vA.length()<60&&!menuOpen){
+   basis(yaw,pitch,bF,bR,bU);const f=vA.dot(bF),l=vA.dot(bR),v=vA.dot(bU),gy=2*G.y0-yaw;
+   basis(gy,pitch,gF,gR,gU);G.tp.addScaledVector(gF,f).addScaledVector(gR,-l).addScaledVector(gU,v);
+   try{wPush(G.tp,.55,G.tp.y-1.6);const sh=wGround(G.tp.x,G.tp.z);if(sh!==null){const m=sh+FEET[chIdx]*(mode==='ground'?1:.6);if(G.tp.y<m)G.tp.y=m}}catch(_){}}
+  G.root.position.set(G.tp.x,G.tp.y+(Rot.position.y-pos.y),G.tp.z);G.root.rotation.set(Rot.rotation.x,2*G.y0-yaw,-Rot.rotation.z);
+  ghostFx(G,dt);
+  if(NET.at&&(G.sT-=dt)<=0){G.sT=.1;const r=G.root;NET.me.child('gh').set({x:q2(r.position.x),y:q2(r.position.y),z:q2(r.position.z),a:q3(r.rotation.x),b:q3(r.rotation.y),c:q3(r.rotation.z)}).catch(netErr)}
+  if(G.t>=GLIFE)killGhost(G,true)}
+ const k=1-Math.exp(-14*dt);
+ for(const u in RG){const g=RG[u],N=window.DFNET,r=N&&N.R[u];
+  if(!r||g.t>=GLIFE){killGhost(g,!!r);delete RG[u];continue}
+  const rt=g.root;rt.position.lerp(g.tp,k);rt.rotation.x+=(g.tr.x-rt.rotation.x)*k;rt.rotation.z+=(g.tr.z-rt.rotation.z)*k;
+  const d=((g.tr.y-rt.rotation.y+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;rt.rotation.y+=d*k;
+  ghostFx(g,dt);rt.visible=r.g.visible}
+}
+
+/* ---------- هدف تدريب (للتجربة بدون لاعبين) ---------- */
+const dm={on:false,g:null,c:new V(),vel:new V(),ph:0,stun:0,placed:false};
+function dmStep(dt){
+ const N=window.DFNET,want=!menuOpen&&CFG.dummy!==0&&!(N&&N.live());
+ if(want&&!dm.g){const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.OctahedronGeometry(1.7,0),new THREE.MeshBasicMaterial({color:0xff9a3c,wireframe:true,fog:false})),new THREE.Mesh(new THREE.SphereGeometry(.7,10,8),new THREE.MeshBasicMaterial({color:0xffd9a0,fog:false})));g.visible=false;scene.add(g);dm.g=g}
+ if(!dm.g)return;
+ if(!want){dm.on=false;dm.g.visible=false;dm.placed=false;return}
+ if(!dm.placed){dm.c.set(pos.x+Math.sin(yaw)*70,pos.y+4,pos.z+Math.cos(yaw)*70);dm.placed=true;dm.ph=0;dm.stun=0;dm.vel.set(0,0,0)}
+ dm.on=true;if(dm.stun<=0)dm.ph+=dt*.35;dm.stun-=dt;dm.c.addScaledVector(dm.vel,dt);dm.vel.multiplyScalar(Math.exp(-3*dt));
+ let y=dm.c.y+Math.sin(dm.ph*1.3)*3;try{const gh=wGround(dm.c.x,dm.c.z);if(gh!==null)y=Math.max(y,gh+6)}catch(_){}
+ dm.g.position.set(dm.c.x+Math.cos(dm.ph)*22,y,dm.c.z+Math.sin(dm.ph)*22);
+ if(dm.stun<=0)dm.g.children[0].rotation.y+=dt*1.5;dm.g.visible=dm.stun>0?Math.sin(t*40)>-.3:true}
+
+/* ---------- الشبكة (Firebase: rooms/{room}/abil/{uid}/{ev|gh}) ---------- */
+const NET={at:null,pend:null,seen:{},c:0,warn:0};
+function netErr(){if(!NET.warn){NET.warn=1;say('⚠ القدرات تعمل عندك فقط: أضف قواعد abil في Firebase ليراها الآخرون')}}
+function netSend(k,ex){if(!NET.at)return;const N=window.DFNET;NET.me.child('ev').set(Object.assign({n:Date.now()*100+(NET.c++%100),k,w:N.idx(),x:q2(pos.x),y:q2(pos.y),z:q2(pos.z)},ex||{})).catch(netErr)}
+function netHandle(u,e){const N=window.DFNET;if(!N||(e.w|0)!==N.idx())return;
+ if(e.k==='m'){clearOwner(u);spawnMine(u,e.x,e.y,e.z,false);if(e.gx!=null)spawnMine(u,e.gx,e.gy,e.gz,false)}
+ else if(e.k==='e'){empGo(u,e.x,e.y,e.z);if(e.gx!=null)empGo(u,e.gx,e.gy,e.gz)}
+ else if(e.k==='g'){const r=N.R[u];if(!r||e.gx==null)return;if(RG[u])killGhost(RG[u],false);const g=mkGhost(r.g,tintOf(r.sk),e.gx,e.gy,e.gz);RG[u]=g;bodyBurst(g,24)}}
+function netDrop(u){if(RG[u]){killGhost(RG[u],false);delete RG[u]}clearOwner(u);delete NET.seen[u]}
+function netOff(){const R0=NET.ref;if(R0){try{R0.off('child_added',NET.on);R0.off('child_changed',NET.on);R0.off('child_removed',NET.gone);NET.me.remove()}catch(_){}}
+ NET.at=null;NET.pend=null;NET.ref=null;NET.seen={};
+ for(const u in RG){killGhost(RG[u],false);delete RG[u]}
+ for(let i=M.length-1;i>=0;i--)if(M[i].owner!=='me')relMine(i);
+ for(let i=EW.length-1;i>=0;i--)if(EW[i].owner!=='me'){EW[i].o.m.visible=false;epool.push(EW[i].o);EW.splice(i,1)}}
+function netSync(){const N=window.DFNET,L=N&&N.live();
+ if(!L){if(NET.at||NET.pend)netOff();return}
+ if(NET.at===L||NET.pend===L)return;
+ netOff();NET.pend=L;
+ try{const ref=firebase.database().ref('rooms/'+L.room+'/abil');
+  ref.once('value').then(s=>{if(NET.pend!==L)return;s.forEach(c=>{const v=c.val();if(v&&v.ev)NET.seen[c.key]=v.ev.n});
+   const me=ref.child(L.uid);me.onDisconnect().remove();
+   const on=s2=>{const u=s2.key;if(u===L.uid)return;const v=s2.val();if(!v)return;
+    if(v.ev&&NET.seen[u]!==v.ev.n){NET.seen[u]=v.ev.n;try{netHandle(u,v.ev)}catch(e){console.error(e)}}
+    const g=RG[u];if(g&&v.gh&&typeof v.gh.x==='number'){g.tp.set(v.gh.x,v.gh.y,v.gh.z);g.tr.set(v.gh.a||0,v.gh.b||0,v.gh.c||0)}};
+   const gone=s2=>netDrop(s2.key);
+   ref.on('child_added',on);ref.on('child_changed',on);ref.on('child_removed',gone);
+   Object.assign(NET,{at:L,ref,me,on,gone,pend:null})}).catch(()=>{})   // فشل الاتصال: لا إعادة محاولة حتى تتغير الجلسة
+ }catch(_){}}
+
+/* ---------- التفعيل ---------- */
+function can(k){if(menuOpen||document.body.classList.contains('ed'))return false;if(dis>0){say2('⚡ قدراتك معطّلة بسبب EMP');return false}return cd[k]<=0}
+function use(k){if(bad||!can(k))return;cd[k]=CD[k];const gp=G?G.tp:null;
+ if(k==='mine'){clearOwner('me');spawnMine('me',pos.x,pos.y,pos.z,true);if(gp)spawnMine('me',gp.x,gp.y,gp.z,true);
+  netSend('m',gp?{gx:q2(gp.x),gy:q2(gp.y),gz:q2(gp.z)}:null)}
+ else if(k==='emp'){empGo('me',pos.x,pos.y,pos.z);if(gp)empGo('me',gp.x,gp.y,gp.z);vib(30);netSend('e',gp?{gx:q2(gp.x),gy:q2(gp.y),gz:q2(gp.z)}:null)}
+ else{if(G)return;basis(yaw,0,bF,bR,bU);const sx=pos.x+bR.x*GSIDE,sy=pos.y,sz=pos.z+bR.z*GSIDE;
+  const g=mkGhost(Rot,tintOf(curSkin),sx,sy,sz);g.own=true;g.y0=yaw;g.sT=0;G=g;bodyBurst(g,30);netSend('g',{gx:q2(sx),gy:q2(sy),gz:q2(sz),b:q3(yaw)})}}
+addEventListener('keydown',e=>{if(e.target.tagName==='INPUT')return;
+ if(dis>0&&(e.code==='ShiftLeft'||e.code==='Space'||e.code==='KeyE')){e.stopImmediatePropagation();e.preventDefault();say2('⚡ الاندفاع والتسارع معطّلان بسبب EMP');return}
+ if(e.repeat||menuOpen)return;if(e.code==='Digit1')use('mine');else if(e.code==='Digit2')use('emp');else if(e.code==='Digit3')use('gh')},true);
+document.addEventListener('pointerdown',e=>{if(dis>0&&e.target.closest&&e.target.closest('#boost,#surge')){e.stopImmediatePropagation();e.preventDefault();say2('⚡ الاندفاع والتسارع معطّلان بسبب EMP')}},true);
+{const _sg=window.surgeGo;window.surgeGo=function(){if(dis>0){say2('⚡ الاندفاع معطّل بسبب EMP');return}return _sg.apply(this,arguments)}}
+function clearAll(){for(let i=M.length-1;i>=0;i--)relMine(i);for(let i=EW.length-1;i>=0;i--){EW[i].o.m.visible=false;epool.push(EW[i].o);EW.splice(i,1)}
+ if(G)killGhost(G,false);for(const u in RG){killGhost(RG[u],false);delete RG[u]}dm.placed=false}
+{const _lw=window.loadWorld;window.loadWorld=function(){try{clearAll()}catch(_){}return _lw.apply(this,arguments)};
+ const _pa=window.placeAt;window.placeAt=function(){const r=_pa.apply(this,arguments);try{prev.copy(pos);if(G)killGhost(G,false)}catch(_){}return r}}
+
+/* ---------- زر الإعدادات: هدف التدريب ---------- */
+{const td=$('tDummy');if(td){const paint=()=>{const on=CFG.dummy!==0;td.textContent='🎯 هدف تدريب للتجربة (بدون لاعبين): '+(on?'مفعّل':'متوقف');td.classList.toggle('on',on)};
+ td.addEventListener('click',()=>{CFG.dummy=CFG.dummy===0?1:0;saveCfg();paint()});paint();
+ const _s=window.syncUI;window.syncUI=function(){const r=_s.apply(this,arguments);paint();return r}}}
+
+/* ---------- الحلقة ---------- */
+function ui(){for(const k in cd){const o=bt[k],p=Math.round(cd[k]/CD[k]*100),s=cd[k]>0?String(Math.ceil(cd[k])):'';
+  if(p!==o.p){o.p=p;o.e.style.setProperty('--p',p)}if(s!==o.s){o.s=s;o.n.textContent=s}
+  const on=k==='mine'?M.some(m=>m.own&&m.state<2):k==='gh'?!!G:false;if(on!==o.on){o.on=on;o.e.classList.toggle('on',on)}
+  const d=dis>0;if(d!==o.dis){o.dis=d;o.e.classList.toggle('dis',d)}}
+ fxEl.style.opacity=dis>0?((.3+.15*Math.sin(t*50))*Math.min(1,dis*2)).toFixed(2):'0'}
+function step(dt){
+ t+=dt;for(const k in cd)if(cd[k]>0)cd[k]=Math.max(0,cd[k]-dt);
+ if(dis>0){dis-=dt;boost=false;surgeT=0;K.ShiftLeft=0;K.Space=0;$('boost').classList.remove('on');shk=Math.max(shk,.1);if(dis<=0){dis=0;say('✅ عادت قدراتك')}}
+ netSync();stepGhosts(dt);stepMines(dt);stepEmp(dt);stepStatus(dt);
+ if(kb.lengthSq()>.04){pos.addScaledVector(kb,dt);kb.multiplyScalar(Math.exp(-4*dt));try{wPush(pos,.55,pos.y-1.6)}catch(_){}}
+ dmStep(dt);fxStep(dt);ui();prev.copy(pos)}
+const _r=renderer.render.bind(renderer);let lt=performance.now();
+renderer.render=function(a,b){const n=performance.now(),dt=Math.min((n-lt)/1000,.05);lt=n;
+ if(!bad){try{step(dt)}catch(e){bad=true;console.error('abilities',e);say('⚠ القدرات: '+(e&&e.message||e))}}
+ return _r(a,b)};
+window.DFAbil={use,h:netHandle,state:()=>({cd:Object.assign({},cd),dis,mines:M.length,ghost:!!G,gp:G?{x:G.tp.x,y:G.tp.y,z:G.tp.z}:null,ms:M.map(m=>({s:m.state,o:m.owner}))}),mirror:(f,l,v)=>({f,l:-l,v})};
+}catch(err){console.error('abilities disabled:',err)}
 })();
 </script>
 </body>
