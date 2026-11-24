@@ -97,14 +97,13 @@ body.m #qmBtn,body.m #qmList{display:none!important}
 .ab.on{background:rgba(159,232,255,.38)}
 .ab.dis{filter:grayscale(1) brightness(.7);border-color:#f66!important}
 #abFx{position:fixed;inset:0;pointer-events:none;opacity:0;z-index:3;background:repeating-linear-gradient(0deg,rgba(120,225,255,0) 0 3px,rgba(120,225,255,.22) 3px 4px),radial-gradient(circle at 50% 50%,rgba(120,225,255,0) 45%,rgba(120,225,255,.35));mix-blend-mode:screen}
-#hpBar{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 46px);width:170px;height:16px;margin-left:-85px;border-radius:9px;background:rgba(0,0,0,.5);border:1px solid var(--line);overflow:hidden;z-index:3;pointer-events:none;touch-action:none}
+#hpBar{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 14px);width:170px;height:16px;margin-left:-85px;border-radius:9px;background:rgba(0,0,0,.5);border:1px solid var(--line);overflow:hidden;z-index:3;pointer-events:none;touch-action:none}
 #hpBar i{position:absolute;left:0;top:0;bottom:0;width:100%;background:#4fe08a;transition:width .2s}
 #hpBar span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;text-shadow:0 1px 3px #000}
 #hpLay{position:fixed;inset:0;pointer-events:none;z-index:2;overflow:hidden}
 #hpLay div{position:absolute;left:0;top:0;width:54px;height:6px;border:1px solid rgba(255,255,255,.55);border-radius:4px;background:rgba(0,0,0,.55);overflow:hidden;display:none;will-change:transform}
 #hpLay i{display:block;height:100%;width:100%;background:#4fe08a}
 .ed-el.hid{opacity:.35}
-#abRules{margin-top:6px}
 body.m .ab,body.m #abFx,body.m #hpBar,body.m #hpLay{display:none}
 body.ed #qmBtn.ed-el{display:block!important}
 body.ed .ab.ed-el,body.ed #hpBar.ed-el{pointer-events:auto!important}
@@ -1467,7 +1466,7 @@ gl_FragColor=vec4(c,1.);}`}));
 <button class="big" id="oJoin" style="display:none">🧲 الانضمام إلى المجموعة</button>
 <div id="oList" class="lbl"></div>
 <button class="big" id="oInd"></button>
-<div class="lbl" id="abSt"></div><button class="big2" id="abRules">📋 نسخ قواعد Firebase للقدرات</button></div>
+<div class="lbl" id="abSt"></div></div>
 <button id="go">ابدأ</button></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
@@ -2285,7 +2284,7 @@ function sendState(force){
  const s={x:rd(p.x,100),y:rd(p.y,100),z:rd(p.z,100),a:rd(q.x,1000),b:rd(q.y,1000),c:rd(q.z,1000),k:chIdx+(L.noSkin?0:10*curSkin),w:myIdx(),j:L.j,h:Math.floor(now/HEART_MS)%1000};
  const o=L.last,moved=!o||Math.abs(s.x-o.x)+Math.abs(s.y-o.y)+Math.abs(s.z-o.z)>POS_EPS||Math.abs(s.a-o.a)+Math.abs(s.b-o.b)+Math.abs(s.c-o.c)>ROT_EPS||s.k!==o.k||s.w!==o.w;
  if(!force&&!moved&&!(now-L.lastSend>HEART_MS))return;
- L.last=s;L.lastSend=now;L.me.set(s).catch(()=>{if(curSkin&&!L.noSkin){L.noSkin=true;L.last=null;say('تعذّرت مزامنة لون الشخصية: قواعد Firebase ترفض قيمة k أكبر من 1');sendState(true)}});
+ L.last=s;L.lastSend=now;L.me.set(s).catch(()=>{if(curSkin&&!L.noSkin){L.noSkin=true;L.last=null;say('تعذّرت مزامنة لون الشخصية');sendState(true)}});
 }
 
 /* ---- قائمة اللاعبين في صفحة الأونلاين (للانتقال إليهم) ---- */
@@ -2347,12 +2346,12 @@ async function connect(){
   setSt('متصل بالغرفة «'+room+'» — اضغط «ابدأ» وشارك الرمز مع أصدقائك');
  }catch(e){
   const c=(e&&(e.code||e.message))||'';
-  const msg=c==='auth/operation-not-allowed'||c==='auth/admin-restricted-operation'?'فعّل Anonymous من Authentication > Sign-in method'
-   :c==='timeout'?'تعذّر الوصول للقاعدة: تأكد من رابط قاعدة البيانات DB_URL ومن القواعد (Rules)'
+  const msg=c==='auth/operation-not-allowed'||c==='auth/admin-restricted-operation'?'تعذّر تسجيل الدخول، حاول لاحقاً'
+   :c==='timeout'?'تعذّر الوصول للخادم، حاول لاحقاً'
    :c==='full'?'الغرفة ممتلئة (الحد '+MAXP+' لاعبين)'
    :c==='sdk'?'تعذّر تحميل Firebase: تحقق من الإنترنت'
-   :/PERMISSION_DENIED/i.test(c)?'القواعد (Rules) ترفض الوصول: انسخ القواعد المطلوبة'
-   :c==='auth/unauthorized-domain'?'أضف نطاق اللعبة في Authentication > Settings > Authorized domains'
+   :/PERMISSION_DENIED/i.test(c)?'الخادم رفض الاتصال، حاول لاحقاً'
+   :c==='auth/unauthorized-domain'?'هذا الرابط غير مسموح له بالاتصال'
    :'تعذّر الاتصال: '+c;
   teardown();setSt(msg,true);oGo.textContent='اتصال';oGo.disabled=false;
  }
@@ -2546,11 +2545,9 @@ function dmStep(dt){
 
 /* ---------- الشبكة (Firebase: rooms/{room}/abil/{uid}/{ev|gh}) ---------- */
 const NET={at:null,pend:null,seen:{},c:0,warn:0};
-const RULES='"abil": {\n  ".read": "auth != null",\n  "$uid": {\n    ".write": "auth != null && auth.uid === $uid"\n  }\n}';
 const abSt=$('abSt'),setSt=(m,b)=>{if(abSt){abSt.textContent='حالة القدرات: '+m;abSt.style.color=b?'#ff9b9b':''}};setSt('غير متصل');
-function netFail(){setSt('⚠ Firebase يرفض مسار abil — اضغط «نسخ القواعد» وأضفها داخل rooms/$room في Rules ثم أعد الاتصال',1);if(!NET.warn){NET.warn=1;say('⚠ القدرات لا تُزامَن مع الآخرين: أضف قواعد abil (القائمة ← الأونلاين)')}}
+function netFail(){setSt('تعذّرت المزامنة مع اللاعبين',1);if(!NET.warn){NET.warn=1;say('⚠ القدرات لا تُزامَن مع الآخرين حالياً')}}
 const netErr=netFail;
-{const rb=$('abRules');if(rb)rb.addEventListener('click',()=>{const ask=()=>{try{prompt('انسخ القواعد وأضفها داخل rooms/$room:',RULES)}catch(_){}};try{navigator.clipboard.writeText(RULES).then(()=>say('تم نسخ القواعد'),ask)}catch(_){ask()}})}
 function netSend(k,ex){if(!NET.at)return;const N=window.DFNET;NET.me.child('ev').set(Object.assign({n:Date.now()*100+(NET.c++%100),k,w:N.idx(),x:q2(pos.x),y:q2(pos.y),z:q2(pos.z)},ex||{})).catch(netErr)}
 function netHandle(u,e){const N=window.DFNET;if(!N||(e.w|0)!==N.idx())return;
  if(e.k==='m'){clearOwner(u);spawnMine(u,e.x,e.y,e.z,false);if(e.gx!=null)spawnMine(u,e.gx,e.gy,e.gz,false)}
@@ -2606,16 +2603,14 @@ function damage(a,src){if(dead>0||menuOpen)return;hp=Math.max(0,hp-a);hpT=0;
 /* ---------- الصحة (تحديث) ---------- */
 function hpStep(dt){if(dead>0){dead-=dt;if(dead<=0){dead=0;hp=HPM;flashK=1;say('✅ عدت للمعركة')}}else if(hp<HPM){hpT+=dt;if(hpT>6)hp=Math.min(HPM,hp+4*dt)}
  const h=Math.round(hp);if(h!==hpShown){hpShown=h;hpFill.style.width=h+'%';hpFill.style.background=hpCol(h);hpTxt.textContent='❤ '+h}
- if(NET.at&&h!==hpSent&&t-hpSendT>.25){hpSent=h;hpSendT=t;NET.me.child('hp').set(h).catch(netErr)}}
+ }
 function putBar(key,p,h){let b=hpBars[key];if(!b){const e=document.createElement('div');e.innerHTML='<i></i>';hpLay.appendChild(e);b=hpBars[key]={e,f:e.firstChild,v:-1}}
  vA.copy(p);vA.y+=3.2;vA.project(cam);const d=cam.position.distanceTo(p);
  if(vA.z>1||d>500||Math.abs(vA.x)>1.1||Math.abs(vA.y)>1.1){b.e.style.display='none';return}
  b.e.style.display='block';b.e.style.transform='translate('+((vA.x*.5+.5)*innerWidth-27).toFixed(0)+'px,'+((-vA.y*.5+.5)*innerHeight).toFixed(0)+'px)';
  const hh=Math.round(h);if(hh!==b.v){b.v=hh;b.f.style.width=hh+'%';b.f.style.background=hpCol(hh)}}
 function barsStep(){const N=window.DFNET,used={};
- if(!menuOpen){if(N&&N.live())for(const u in N.R){const r=N.R[u];if(r.g.visible){used[u]=1;putBar(u,r.g.position,HPR[u]==null?HPM:HPR[u])}}
-  if(dm.on){used.dm=1;putBar('dm',dm.g.position,dm.hp)}}
- for(const k in hpBars)if(!used[k]){hpBars[k].e.remove();delete hpBars[k]}}
+  for(const k in hpBars)if(!used[k]){hpBars[k].e.remove();delete hpBars[k]}}
 /* ---------- الحلقة ---------- */
 function ui(){const k=SKS[sel][0],p=Math.round(cd[k]/CD[k]*100),st=cd[k]>0?String(Math.ceil(cd[k])):'';
  if(p!==uiP){uiP=p;bFire.style.setProperty('--p',p);bSel.style.setProperty('--p',p)}if(st!==uiS){uiS=st;fireN.textContent=st}
